@@ -1,2 +1,2 @@
 # Momentum-Game-Theory
-QUANTT - Momentum Game Theory Strategy
+Momentum Game Theoric Powered Trading Strategy
