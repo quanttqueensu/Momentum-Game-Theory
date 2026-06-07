@@ -2,3 +2,4 @@
 data/
 .DS_Store
 settings.json
+residuals.parquet
