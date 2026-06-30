@@ -57,8 +57,10 @@ OOS_START, OOS_END = "2019-01-01", "2026-12-31"
 ALL_START, ALL_END = "2001-01-01", "2026-12-31"
 PRICE_START = "1999-06-01"
 
-COST_BPS = 10
-TOP_K    = 4
+COST_BPS    = 10
+TOP_K       = 4     # sectors entered each month
+BUFFER_EXIT = 6     # rank buffer: an incumbent is held until it drops out of the top-6
+REGIME_MA   = 231   # ~11-month SPY trend filter (slower than 200d -> fewer whipsaws)
 DEV_MODE = True   # in-sample only -- iterate here, never peek at OOS
 
 PERIODS = [("IS", IS_START, IS_END)] if DEV_MODE else [
@@ -108,10 +110,10 @@ scores_comp = (cs_z(scores_3_1) + cs_z(scores_6_1) + cs_z(scores_12_1)) / 3
 
 # -- Regime filter -------------------------------------------------------------
 spy_daily = close_daily["SPY"].dropna()
-regime    = (spy_daily > spy_daily.rolling(200).mean()).resample("ME").last()
+regime    = (spy_daily > spy_daily.rolling(REGIME_MA).mean()).resample("ME").last()
 regime    = regime.reindex(monthly.index).fillna(True).map({True: 1.0, False: 0.0})
 agg_ret   = bm_cols.get("AGG", pd.Series(dtype=float))
-print(f"[regime] above 200d MA: {regime.mean():.0%} | "
+print(f"[regime] above {REGIME_MA}d MA: {regime.mean():.0%} | "
       f"gate OFF: {int((regime == 0).sum())} months")
 
 
@@ -141,8 +143,9 @@ def uniqueness_weights(held, monthly_rets, t, corr_window=12):
 def build_book(scores, fwd_rets, regime_s, monthly_rets, agg_r, cost_bps=COST_BPS):
     reg    = regime_s.reindex(scores.index).fillna(1.0)
     dates  = sorted(set(scores.index) & set(fwd_rets.index))
-    prev_w = pd.Series(dtype=float)
-    records = []
+    prev_w   = pd.Series(dtype=float)
+    cur_held = set()                       # incumbents, for rank buffering
+    records  = []
 
     for i, t in enumerate(dates[:-1]):
         next_t = dates[i + 1]
@@ -155,14 +158,17 @@ def build_book(scores, fwd_rets, regime_s, monthly_rets, agg_r, cost_bps=COST_BP
             net   = gross - turn * cost_bps / 10_000
             records.append({"date": t, "gross": gross, "net": net,
                             "turnover": turn, "n_held": 0, "exposure": 0.0})
-            prev_w = w
+            prev_w, cur_held = w, set()    # rotated fully to bonds -- no equity incumbents
             continue
 
         row = scores.loc[t].dropna()
         if len(row) < TOP_K:
             continue
-        held = list(row.nlargest(TOP_K).index)
-        w    = uniqueness_weights(held, monthly_rets, t)
+        ranked = row.rank(ascending=False)             # 1 = strongest
+        entry  = set(ranked[ranked <= TOP_K].index)    # this month's top-K
+        hold   = set(ranked[ranked <= BUFFER_EXIT].index)
+        held   = list((cur_held & hold) | entry)       # keep incumbents still inside the buffer band
+        w      = uniqueness_weights(held, monthly_rets, t)
 
         all_n  = w.index.union(prev_w.index)
         turn   = (w.reindex(all_n, fill_value=0) - prev_w.reindex(all_n, fill_value=0)).abs().sum()
@@ -173,7 +179,7 @@ def build_book(scores, fwd_rets, regime_s, monthly_rets, agg_r, cost_bps=COST_BP
 
         records.append({"date": t, "gross": gross, "net": net,
                         "turnover": turn, "n_held": len(held), "exposure": 1.0})
-        prev_w = w
+        prev_w, cur_held = w, set(held)
 
     return pd.DataFrame(records).set_index("date")
 
@@ -230,17 +236,22 @@ for bm_name, bm in bm_cols.items():
 def sector_weights_ts(scores, monthly_rets, regime_s, top_k):
     reg = regime_s.reindex(scores.index).fillna(1.0)
     out = []
+    cur_held = set()
     for t in scores.index:
         if reg.loc[t] == 0.0:
-            out.append(pd.Series(0.0, index=univ_cols, name=t)); continue
+            out.append(pd.Series(0.0, index=univ_cols, name=t)); cur_held = set(); continue
         row_ = scores.loc[t].dropna()
         if len(row_) < top_k:
             out.append(pd.Series(0.0, index=univ_cols, name=t)); continue
-        held = list(row_.nlargest(top_k).index)
+        ranked = row_.rank(ascending=False)
+        entry  = set(ranked[ranked <= top_k].index)
+        hold   = set(ranked[ranked <= BUFFER_EXIT].index)
+        held   = list((cur_held & hold) | entry)
         w = uniqueness_weights(held, monthly_rets, t)
         s = pd.Series(0.0, index=univ_cols)
         s.update(w)
         out.append(s.rename(t))
+        cur_held = set(held)
     return pd.DataFrame(out)
 
 print("[chart] computing sector weights ...")
