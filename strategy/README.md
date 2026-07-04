@@ -17,9 +17,9 @@ Two well-documented market facts power everything:
 **1. Momentum.** Assets that have done well over the past 3–12 months tend
 to keep doing well over the next month. This is one of the oldest and most
 replicated findings in finance. It works best *across* broad asset classes
-and sectors (which is where we use it) — and it has famously stopped working
-for picking individual large-cap stocks (which we tested and refuted in this
-project, three separate times).
+and sectors — which is why this strategy rotates whole markets and sectors,
+never individual stocks (where the effect has famously stopped working for
+large caps).
 
 **2. Crashes are slow enough to step aside from.** Bear markets like
 2000–02 and 2008 didn't happen in a day; they ground down for months. A slow
@@ -28,9 +28,9 @@ enough to skip most of the damage. The price: the same signal re-enters
 late, so you give back some of the recovery. Every rule in this strategy is
 a negotiation between those two facts.
 
-Everything is **monthly**. We tested weekly "quick exit" rules five
-different ways: every one of them lost ~2–3%/yr *and* made drawdowns worse
-(they sell dips and buy back higher). Slow is a feature.
+Everything is **monthly**. Faster weekly "quick exit" rules backtest
+~2–3%/yr worse *and* with deeper drawdowns — they sell dips and buy back
+higher. Slow is a feature.
 
 ## Part 2 — The machine
 
@@ -93,8 +93,8 @@ Each month-end:
 4. **The bear filter:** if SPY closes the month below its 231-day moving
    average, the whole sleeve retreats to **AGG** (aggregate bonds) — and
    comes back once SPY recrosses its **126-day** average, not the 231-day.
-   Exit slow, re-enter fast: the asymmetric version tested +1.7%/yr better
-   than the symmetric one, with half the worst-case lag behind SPY.
+   Exit slow, re-enter fast: waiting for the slower 231-day recross costs
+   ~1.7%/yr and doubles the worst-case lag behind SPY after a crash.
 
 ### The throttle (the book-level safety valve)
 
@@ -195,16 +195,15 @@ horizon agreed in writing first.**
 
 ## Part 7 — The fine print (read before pitching)
 
-1. **2019+ is not clean out-of-sample for this exact configuration.** The
-   original Strategy 11 had a one-shot out-of-sample test (2019–26) which
-   it passed with mild decay (Sharpe 0.98 → 0.78); the fast-re-entry
-   upgrades were validated on 2001–18 data only, *after* that reveal. Treat
-   recent-period numbers as expectation-setting, not proof. The real test
-   is live paper trading.
-2. ~300 configurations were examined across this strategy's lineage. The
+1. **2019+ is not clean out-of-sample.** The core two-engine book passed a
+   one-shot out-of-sample test on 2019–26 with mild decay (Sharpe 0.98 →
+   0.78), but the fast-re-entry rules were finalized on 2001–18 data *after*
+   that reveal. Treat recent-period numbers as expectation-setting, not
+   proof. The real test is live paper trading.
+2. Hundreds of configurations were examined during development. The
    defences against cherry-picking: every parameter sits on a flat ridge
-   (neighbours all work), every mechanism was validated separately before
-   being combined, and every refuted idea is documented (git history).
+   (neighbours all work), and every mechanism was validated separately
+   before being combined.
 3. Prices are fresh yfinance adjusted closes + the FRED 3-month T-bill,
    cached in `data/`. Early-history gaps (AGG pre-2003, IEF pre-2002, EFA
    pre-08/2001, EEM pre-2003) earn the T-bill rate — no backfill, no

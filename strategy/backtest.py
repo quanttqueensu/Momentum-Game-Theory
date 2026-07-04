@@ -1,9 +1,9 @@
 """
-backtest.py  --  full backtest of THE strategy (IS 2001-18 | 2019+ | full).
+backtest.py  --  full backtest of the strategy (IS 2001-18 | 2019+ | full).
 
-Note: 2019+ is NOT clean OOS for this exact config (fast re-entry was chosen
-after S11's one-shot OOS reveal; see README disclosures). It is shown because
-the club needs honest full-cycle expectations, not as fresh statistical proof.
+Note: 2019+ is NOT clean out-of-sample -- the final rules were selected with
+knowledge of that period (see README disclosures). It is shown because the
+club needs honest full-cycle expectations, not as fresh statistical proof.
 """
 import os
 import numpy as np

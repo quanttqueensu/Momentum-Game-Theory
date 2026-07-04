@@ -1,7 +1,7 @@
 """
-strategy_lib.py  --  THE club strategy, self-contained in this folder.
+strategy_lib.py  --  the club strategy, self-contained in this folder.
 
-THE TWO-ENGINE BOOK (final config, locked 2026-07-03):
+THE TWO-ENGINE BOOK:
 
     65%  STYLE ENGINE   top-1 of {SPY, QQQ, IWM, EFA, EEM} by composite
                         momentum (3/6/12m z-scores), incumbency buffer 1;
@@ -17,19 +17,16 @@ THE TWO-ENGINE BOOK (final config, locked 2026-07-03):
          never the strategy's own history) exceeds 15% ann., trim all risk
          positions pro-rata into the defensive pick. Never levered.
 
-Lineage: Strategy 11 (65/35 two-engine throttle book) + the fast-re-entry
-upgrades validated in-sample on both sleeves (2026-07-03 weighting study:
-static ridge flat, adaptive weightings refuted, fast re-entry the only
-improvement). Everything needed lives in THIS folder.
+Everything the strategy needs lives in THIS folder.
 
-Conventions (repo standard):
+Conventions:
   * signals on the month-end close; execution at the NEXT trading day's close
   * 10 bps per traded leg; monthly decisions only, daily accounting
   * cash earns the FRED 3m T-bill; missing quotes earn the T-bill (splice:
     AGG pre-2003, IEF pre-2002, EFA pre-2001-08, EEM pre-2003 ...)
   * no backfill: an asset is scoreable only once it has 13 months of history
-  * IS = 2001-01..2018-12; 2019+ shown in the backtest is NOT clean OOS for
-    this exact config (see README disclosures)
+  * parameters were selected on 2001-01..2018-12 (IS); treat 2019+ results
+    as expectation-setting, not proof (see README disclosures)
 """
 import os, io, ssl, urllib.request
 import numpy as np
