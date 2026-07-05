@@ -42,7 +42,7 @@ def report(label, x, a, b):
 
 
 print("\n" + "=" * 96)
-print("THE TWO-ENGINE BOOK  (65% style / 35% sector, both fast re-entry, 15% throttle)")
+print("THE TWO-ENGINE BOOK  (65% style / 35% sector, fast re-entry, crash-only 12% throttle)")
 print("=" * 96)
 for tag, a, b in [("IS  2001-2018", S.IS_START, S.IS_END),
                   ("2019 -> now", OOS_START, str(END.date())),

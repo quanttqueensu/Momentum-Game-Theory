@@ -30,7 +30,12 @@ tgt_raw = S.combine_paths([(ps, S.W_STYLE), (p6, S.W_SECTOR)])[t]
 tgt = S.throttle_target(DI, tgt_raw, t, S.BOOK_VT)
 scale = (tgt[[c for c in tgt.index if c in S.RISK_TICKERS]].sum()
          / max(tgt_raw[[c for c in tgt_raw.index if c in S.RISK_TICKERS]].sum(), 1e-9))
-print(f"\nThrottle: {'INACTIVE (book vol <= 15%)' if scale > 0.999 else f'ACTIVE -- risk scaled to {scale:.0%}'}")
+if bool(DI["uptrend"].get(t, True)):
+    print("\nThrottle: OFF (SPY above its 126d MA -- never throttled in uptrends)")
+elif scale > 0.999:
+    print("\nThrottle: ARMED (SPY below its 126d MA) -- book vol <= 12%, no trim needed")
+else:
+    print(f"\nThrottle: ACTIVE -- risk scaled to {scale:.0%}")
 print(f"Defensive pick this month: {S.pick_defensive(DI, t)}")
 
 print("\nFINAL TARGET BOOK (trade at next trading day's close):")

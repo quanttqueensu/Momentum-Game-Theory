@@ -8,14 +8,24 @@ THE TWO-ENGINE BOOK:
                         held only while trailing 12m OR 6m total return
                         beats the matching T-bill return (fast re-entry);
                         otherwise hurdled IEF, else T-bill cash.
-    35%  SECTOR ENGINE  top-4 of 11 iShares US sectors by the same composite,
-                        top-6 incumbency buffer, uniqueness (anti-crowding)
-                        weights; risk-off to AGG when SPY < 231d MA,
-                        re-entering once SPY > 126d MA (fast re-entry).
-    +    ONE BOOK-LEVEL 15% VOL THROTTLE: at each monthly rebalance, if the
-         combined target book's trailing-63d vol (asset returns x weights,
-         never the strategy's own history) exceeds 15% ann., trim all risk
-         positions pro-rata into the defensive pick. Never levered.
+    35%  SECTOR ENGINE  top-4 of 11 iShares US sectors by CONGESTION-GAME
+                        equilibrium rank: each sector's payoff is its
+                        composite momentum minus a crowding tax on its
+                        correlation with where the rest of the sleeve's
+                        capital sits (Nash equilibrium via replicator
+                        dynamics), so four winners that are one trade in
+                        four wrappers get substituted, not stacked.
+                        Top-6 incumbency buffer in equilibrium rank, equal
+                        weights; risk-off when SPY < 231d MA into the same
+                        hurdled defensive as the style engine (IEF only if
+                        it beats T-bills, else cash), re-entering once
+                        SPY > 126d MA (fast re-entry).
+    +    ONE CRASH-ONLY VOL THROTTLE: the book is never throttled while SPY
+         closes above its 126d MA (high vol in an uptrend is turbulence, not
+         danger). Below it, at each monthly rebalance, if the combined target
+         book's trailing-21d vol (asset returns x weights, never the
+         strategy's own history) exceeds 12% ann., trim all risk positions
+         pro-rata into the defensive pick. Never levered.
 
 Everything the strategy needs lives in THIS folder.
 
@@ -45,12 +55,12 @@ ALL_TICKERS = list(dict.fromkeys(SECTORS + STYLES + DEFENSIVE))
 CASH = "CASH"
 
 W_STYLE, W_SECTOR = 0.65, 0.35
-BOOK_VT     = 0.15
-VOL_WINDOW  = 63
+BOOK_VT     = 0.12                     # crash-only: applies below SPY's 126d MA
+VOL_WINDOW  = 21                       # fast vol read (flat ridge 10-63; fast wins in crashes)
 TOP_K, BUFFER_EXIT = 4, 6              # sector engine
 STYLE_K, STYLE_BUFFER = 1, 1           # style engine
 REGIME_EXIT_MA, REGIME_ENTER_MA = 231, 126
-CORR_WINDOW = 12
+GAME_LAM, GAME_CORR_DAYS = 8.0, 126    # sector congestion game (played over all 11)
 COST_BPS    = 10.0
 PRICE_START = "1999-01-01"
 IS_START, IS_END = "2001-01-01", "2018-12-31"
@@ -139,11 +149,12 @@ def build_data(refresh=False):
             state = True
         out[t] = 1.0 if state else 0.0
     regime = pd.Series(out).reindex(idx).fillna(1.0)
+    uptrend = (spy > spy.rolling(REGIME_ENTER_MA).mean()).resample("ME").last()
 
     return dict(close=close, rets=close.pct_change(fill_method=None),
                 monthly=monthly, exec_rets=exec_rets, tb_d=tb_d, tbill_m=tbill_m,
                 tbill6=tbill6, tbill12=tbill12, tot6=tot6, tot12=tot12,
-                regime=regime)
+                regime=regime, uptrend=uptrend)
 
 
 _DI = None
@@ -198,40 +209,46 @@ def style_weight_path(DI):
 
 
 # ---- SECTOR engine (35%) ------------------------------------------------------------
-def uniqueness_weights(DI, held, t, corr_window=CORR_WINDOW):
-    if len(held) == 1:
-        return pd.Series(1.0, index=held)
-    hist = DI["monthly"].loc[:t].iloc[-(corr_window + 1):][held].dropna(axis=1, how="any")
-    if hist.shape[1] < 2 or hist.shape[0] < 3:
-        return pd.Series(1.0 / len(held), index=held)
-    C, avail = hist.corr(), hist.columns.tolist()
-    uniq = pd.Series({s: max(1.0 - C.loc[s, [x for x in avail if x != s]].mean(), 1e-6)
-                      for s in avail})
-    for s in held:
-        if s not in uniq:
-            uniq[s] = uniq.mean() if len(uniq) else 1.0
-    total = uniq[held].sum()
-    return uniq[held] / total if total > 0 else pd.Series(1.0 / len(held), index=held)
+def congestion_equilibrium(mu, corr, lam=GAME_LAM, iters=300, eta=0.1):
+    """Nash equilibrium of the capital-congestion game: allocating weight w_i
+    to asset i earns its momentum score mu_i minus a crowding tax
+    lam * (corr @ w)_i that grows with how much capital already sits in
+    correlated assets. A potential game -- replicator dynamics converge to
+    the simplex maximizer of  mu.w - (lam/2) w' corr w."""
+    w = np.full(len(mu), 1.0 / len(mu))
+    for _ in range(iters):
+        grad = mu - lam * corr @ w
+        w = w * np.exp(eta * (grad - grad.max()))  # shift for numerical stability
+        w /= w.sum()
+    return w
 
 
 def sector_weight_path(DI):
-    """Top-4 sectors, uniqueness weights, fast-re-entry regime -> AGG."""
+    """Top-4 sectors by congestion-game equilibrium rank (crowded momentum is
+    taxed), top-6 incumbency buffer, equal weights, fast-re-entry regime -> AGG.
+    The equilibrium decides only WHICH sectors to hold; sizing stays equal
+    weight (equilibrium sizing concentrates and backtests worse)."""
     scores = composite(DI["monthly"], SECTORS)
     reg = DI["regime"].reindex(scores.index).fillna(1.0)
+    rets = DI["rets"]
     out, cur_held = {}, set()
     for t in scores.index:
         row = scores.loc[t].dropna()
         if len(row) < TOP_K:
             continue
         if reg.loc[t] == 0.0:
-            out[t] = pd.Series({"AGG": 1.0})
+            out[t] = pd.Series({pick_defensive(DI, t): 1.0})
             cur_held = set()
             continue
-        ranked = row.rank(ascending=False)
+        hist = rets[row.index].loc[:t].tail(GAME_CORR_DAYS)
+        corr = hist.corr().fillna(0.0).to_numpy()
+        np.fill_diagonal(corr, 1.0)
+        eq = pd.Series(congestion_equilibrium(row.to_numpy(), corr), index=row.index)
+        ranked = eq.rank(ascending=False)
         entry  = set(ranked[ranked <= TOP_K].index)
         hold   = set(ranked[ranked <= BUFFER_EXIT].index)
         held   = list((cur_held & hold) | entry)
-        out[t] = uniqueness_weights(DI, held, t)
+        out[t] = pd.Series(1.0 / len(held), index=held)
         cur_held = set(held)
     return out
 
@@ -249,8 +266,11 @@ def combine_paths(paths_weights):
 
 
 def throttle_target(DI, tgt, t, book_vt=BOOK_VT):
-    """Apply the book-level vol throttle to one month's target weights."""
+    """Apply the crash-only vol throttle to one month's target weights.
+    No cap while SPY is above its 126d MA; below it, trim to `book_vt`."""
     if not book_vt:
+        return tgt
+    if bool(DI["uptrend"].get(t, True)):
         return tgt
     risk_w = tgt[[c for c in tgt.index if c in RISK_TICKERS]]
     if not len(risk_w) or risk_w.sum() <= 0:

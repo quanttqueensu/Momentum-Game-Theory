@@ -1,7 +1,8 @@
 # Momentum-Game-Theory
 
 The club's momentum strategy: a self-contained two-engine ETF rotation book —
-**65% style rotation / 35% sector rotation, fast re-entry, 15% vol throttle.**
+**65% style rotation / 35% sector rotation via a congestion-game equilibrium
+(momentum taxed by crowding), fast re-entry, crash-only 12% vol throttle.**
 
 Everything lives in [`strategy/`](strategy/):
 

@@ -1,11 +1,12 @@
 # The Two-Engine Book — the club strategy, explained from scratch
 
 A monthly ETF rotation strategy: **65% of capital picks the single
-strongest equity market, 35% picks the four strongest US sectors, and both
-halves automatically step aside into bonds or cash when their holdings stop
+strongest equity market, 35% picks four US sectors by a game-theoretic
+rule — strongest momentum, taxed for crowding — and both halves
+automatically step aside into bonds or cash when their holdings stop
 trending.** One rebalance a month, 5–8 liquid ETFs, ~15 minutes of work.
 
-Over 2001→today (net of costs): **+10.6%/yr vs SPY's +9.0%, with a −16%
+Over 2001→today (net of costs): **+12.6%/yr vs SPY's +9.0%, with a −19%
 worst drawdown vs SPY's −51%.**
 
 ---
@@ -39,12 +40,12 @@ higher. Slow is a feature.
    ┌────────────────────────────────┬─────────────────────────────────┐
    │       65%  STYLE ENGINE        │       35%  SECTOR ENGINE        │
    │  best 1 of SPY QQQ IWM EFA EEM │  best 4 of 11 iShares sectors   │
-   │  by 3/6/12m composite momentum │  same score, anti-crowding wts  │
+   │  by 3/6/12m composite momentum │  by momentum MINUS crowding tax │
    │  held while 12m OR 6m return   │  bear filter: SPY < 231d MA ->  │
-   │  beats T-bills, else bonds/cash│  all to AGG; back at 126d MA    │
+   │  beats T-bills, else bonds/cash│  bonds/cash; back at 126d MA    │
    └────────────────────────────────┴─────────────────────────────────┘
-                 ONE BOOK-LEVEL 15% VOLATILITY THROTTLE
-      (if the combined book gets too hot, trim into bonds/cash)
+              ONE CRASH-ONLY 12% VOLATILITY THROTTLE
+   (only while SPY < 126d MA: if the book runs hot, trim to bonds/cash)
 ```
 
 ### Engine 1 — the style engine (65% of capital)
@@ -84,29 +85,50 @@ IDU, materials IYM, industrials IYJ, real estate IYR).
 Each month-end:
 
 1. **Score** all 11 with the same composite momentum.
-2. **Hold the top 4** (an incumbent stays until it falls out of the top 6 —
-   same anti-churn logic as engine 1).
-3. **Anti-crowding weights:** among the four, more weight goes to the
-   sector *least correlated* with the other three over the past year. Four
-   momentum winners are often the same trade in four wrappers (tech,
-   semis-heavy industrials...); this spreads the actual bets.
+2. **Tax the crowded ones (the game-theory layer):** the sectors then play
+   a *congestion game* for the sleeve's capital. Allocating to a sector
+   earns its momentum score but pays a penalty that grows with how much
+   capital already sits in sectors correlated with it (past 126 trading
+   days). The equilibrium of that game — found by a simple iterative
+   dynamic — is the final ranking. Four momentum winners are often the same
+   trade in four wrappers (tech, semis-heavy industrials...); the game
+   substitutes a genuinely different bet for the fourth wrapper instead of
+   stacking it.
+3. **Hold the equilibrium top 4, equal-weighted** (an incumbent stays until
+   it falls out of the equilibrium top 6 — same anti-churn logic as
+   engine 1). Equal weight is deliberate: using the raw equilibrium
+   *weights* concentrates the sleeve and backtests worse; the game's value
+   is in choosing *which* sectors, not how much of each.
 4. **The bear filter:** if SPY closes the month below its 231-day moving
-   average, the whole sleeve retreats to **AGG** (aggregate bonds) — and
+   average, the whole sleeve retreats to the **same hurdled defensive as
+   engine 1** — IEF if it beats the T-bill hurdle, otherwise cash — and
    comes back once SPY recrosses its **126-day** average, not the 231-day.
    Exit slow, re-enter fast: waiting for the slower 231-day recross costs
-   ~1.7%/yr and doubles the worst-case lag behind SPY after a crash.
+   ~1.7%/yr and doubles the worst-case lag behind SPY after a crash. Making
+   the refuge hurdled (instead of unconditional bonds) matters in
+   stock+bond bears like 2022, when the old bond refuge fell too.
 
-### The throttle (the book-level safety valve)
+### The throttle (the book-level safety valve, crash-only)
 
-After combining the engines 65/35, we ask: *"had I held exactly this
-portfolio for the last 63 trading days, what was its volatility?"* If the
-answer is above **15% annualized**, every risk position is trimmed
-proportionally — `scale = 15% / measured vol` — and the freed capital joins
+The throttle exists for crashes, so it only runs when the tape says a crash
+is possible: **while SPY closes the month below its 126-day moving
+average.** Above that line the book is never trimmed, no matter how hot it
+runs. The reason is that volatility is high in two very different worlds —
+during crashes, and during the violent first year of a recovery — and only
+one of them is dangerous. An unconditional vol cap trims the recovery
+exactly when the re-entry rules have just bought back in; that is how a
+strategy ends up 15 points behind a rebound year.
+
+When armed (SPY below the 126d line), we ask: *"had I held exactly this
+portfolio for the last 21 trading days, what was its volatility?"* (A fast
+one-month read: in a crash, last quarter's volatility is stale news.) If the
+answer is above **12% annualized**, every risk position is trimmed
+proportionally — `scale = 12% / measured vol` — and the freed capital joins
 that month's defensive pick (IEF or cash). It never levers up, and it
-resets fresh every month. Volatility clusters, so "the recent past was
-violent" is a decent proxy for "next month is dangerous." The 15% is also
-the club's **risk dial**: backtests at 12% and 18% move return and drawdown
-smoothly, no cliffs.
+resets fresh every month. The 12% cap is the club's **risk dial**
+(backtests at 10% and 15% move return and drawdown smoothly, no cliffs),
+and the 126-day line is the same one the sector engine re-enters on — not a
+new parameter.
 
 ### Honesty rules baked into the backtest
 
@@ -120,30 +142,31 @@ Same period (2001→today), same monthly data, strategy net of costs:
 
 | | **This book** | **SPY** |
 |---|:--:|:--:|
-| Worst drawdown (monthly) | **−15.7%** | −50.8% |
-| Worst drawdown (daily) | **−22.8%** | ~−55% |
-| Worst 12 months | **−13.7%** | −43.4% |
-| Worst single month | **−8.2%** | −16.5% |
-| Longest underwater | **23 months** | 52 months |
-| Volatility | 11.3% | 14.9% |
-| Beta to SPY | 0.54 | 1.00 |
+| Worst drawdown (monthly) | **−19.1%** | −50.8% |
+| Worst drawdown (daily) | **−20.2%** | ~−55% |
+| Worst 12 months | **−19.1%** | −43.4% |
+| Worst single month | **−8.8%** | −16.5% |
+| Longest underwater | **25 months** | 52 months |
+| Volatility | 12.2% | 15.1% |
+| Beta to SPY | 0.55 | 1.00 |
 
 What that means in practice:
 
-- **The catastrophes just don't happen.** 2008: SPY peak-to-trough
-  **−50.8%**, this book **−7.0%**. Dot-com bear (2001–02): SPY −20.9%, book
-  −7.1%. COVID (Feb–Mar 2020): SPY −19.4%, book −8.3%. 2022: SPY −18.2%,
-  book −13.7% (its worst crash — bonds fell too, so there was nowhere good
-  to hide; the cash hurdle limited the damage).
+- **The catastrophes are cut to survivable size.** 2008: SPY peak-to-trough
+  **−50.8%**, this book **−19.1%** (its worst episode; calendar 2008 closed
+  at just −0.3%). Dot-com bear (2001–02): SPY −28.0%, book −7.3%. COVID
+  (Feb–Mar 2020): SPY −19.4%, book −6.8%. 2022: SPY −18.2%, book −16.1%
+  (the hardest environment — bonds fell too; the hurdled refuges kept the
+  sleeves in cash instead of falling bonds).
 - **The recovery math is the whole game.** A −51% loss needs +103% to get
-  back to even — SPY spent 4½ years underwater after 2007. A −16% loss
-  needs +19% — this book's longest underwater stretch was under 2 years.
-  That asymmetry, compounded over 25 years, is *why* the tortoise ends up
-  ahead of SPY (+10.6% vs +9.0%/yr) despite trailing it in most bull years.
-- **Roughly "half of SPY's risk"** is the honest one-liner: beta 0.54,
-  worst-case numbers a third to a half of SPY's at every horizon.
+  back to even — SPY spent 4½ years underwater after 2007. A −19% loss
+  needs +24% — this book's longest underwater stretch was just over 2
+  years. That asymmetry, compounded over 25 years, is *why* it ends up
+  ahead of SPY (+12.6% vs +9.0%/yr) while carrying much less risk.
+- **Roughly "40% of SPY's worst case"** is the honest one-liner: beta 0.55,
+  worst-case numbers well under half of SPY's at every horizon.
 
-The one safety caveat to say out loud: −22.8% is the worst *daily* reading
+The one safety caveat to say out loud: −20.2% is the worst *daily* reading
 (March 2020) — deeper than the monthly table suggests. Pre-register that
 number with the committee so nobody is surprised mid-crash.
 
@@ -151,13 +174,13 @@ number with the committee so nobody is surprised mid-crash.
 
 | | Sharpe | Ann. ret | MaxDD | worst month | t-stat |
 |---|:--:|:--:|:--:|:--:|:--:|
-| **Book, 2001–18 (in-sample)** | **+1.01** | **+11.0%** | −14% | −8.2% | +4.22 |
-| Book, 2019→now | +0.79 | +9.6% | −14% | −7.4% | +2.26 |
-| **Book, full 2001→now** | **+0.94** | **+10.6%** | **−16%** | −8.2% | +4.74 |
+| **Book, 2001–18 (in-sample)** | **+1.08** | **+12.8%** | −19% | −8.8% | +4.49 |
+| Book, 2019→now | +0.93 | +12.0% | −16% | −7.7% | +2.60 |
+| **Book, full 2001→now** | **+1.03** | **+12.6%** | **−19%** | −8.8% | +5.17 |
 | SPY full | +0.59 | +9.0% | −51% | −16.5% | +3.27 |
 | 60/40 full | +0.71 | +6.8% | −32% | −10.8% | +3.74 |
 
-Alpha +5.1%/yr at beta 0.54. Turnover ~7.4×/yr. Chart: `backtest.png`.
+Alpha +6.9%/yr at beta 0.55. Turnover ~7.3×/yr. Chart: `backtest.png`.
 
 ## Part 5 — What living with it feels like (frame this honestly)
 
@@ -165,23 +188,27 @@ Alpha +5.1%/yr at beta 0.54. Turnover ~7.4×/yr. Chart: `backtest.png`.
 against SPY only over full cycles (3+ years).** Year by year vs SPY, three
 patterns repeat (13 bull years since 2001, SPY > +15%):
 
-- **Normal bull year: double digits, ~5–7 points behind SPY** (median gap
-  −6.1). 2013: +27.4% vs +32.3%. 2024: +20.8% vs +24.9%. Occasionally it
-  wins one outright (2006).
-- **The year after a crash: 10–19 points behind.** 2009: +12.1% vs +26.4%;
-  2019: +12.1% vs +31.2%. The filters that dodged the crash re-enter early
-  but not instantly. These are the years the committee will want to fire
-  it — that is the strategy working as designed.
-- **Bear and sideways years: this is where it wins.** 2008: +35.9 points
-  ahead of SPY. 2002: +13.9 ahead. 2022: +4.4 ahead. 2004/05/07: +10–15
+- **Normal bull year: double digits, a few points behind SPY** (median gap
+  −4.2 across the 13 bull years). 2013: +27.6% vs +32.3%. 2024: +20.4% vs
+  +24.9%. And it wins some outright — 2003 (+39.4% vs +28.2%), 2006, 2009
+  (+29.1% vs +26.4%), 2020 (+30.4% vs +18.3%) — because riding the violent
+  early months of a recovery at full size is exactly what the crash-only
+  throttle is built to allow.
+- **The year after a false alarm: 13–19 points behind.** When the prior
+  year ended in a scare that reversed (December 2018, the 2022 bear, the
+  2025 spring dip), the book starts the rebound year de-risked and pays for
+  it: 2019: +11.9% vs +31.2%; 2023: +13.4% vs +26.2%; 2025: +4.1% vs
+  +17.7%. These are the years the committee will want to fire it — that is
+  the strategy working as designed.
+- **Bear and sideways years: this is where it wins.** 2008: +36.5 points
+  ahead of SPY. 2002: +14.3 ahead. 2022: +2.1 ahead. 2004/05/07: +5–16
   ahead.
 
-It never missed a bull market entirely (worst bull-year absolute return
-≈ +6–12%), and it has never had a losing year while SPY was up big. But in
-2019–26, a nearly unbroken mega-cap bull, over half of rolling 12-month
-windows lagged SPY by >5 points. **If the club will judge it annually
-against SPY, do not run it. Get the 60/40 benchmark and a 3-year review
-horizon agreed in writing first.**
+It has never had a losing year while SPY was up big (worst bull-year
+absolute return: +4.1% in 2025). But in 2019–26, a nearly unbroken mega-cap
+bull, 42% of rolling 12-month windows lagged SPY by >5 points. **If the
+club will judge it annually against SPY, do not run it. Get the 60/40
+benchmark and a 3-year review horizon agreed in writing first.**
 
 ## Part 6 — Running it (the monthly ritual)
 
@@ -197,9 +224,13 @@ horizon agreed in writing first.**
 
 1. **2019+ is not clean out-of-sample.** The core two-engine book passed a
    one-shot out-of-sample test on 2019–26 with mild decay (Sharpe 0.98 →
-   0.78), but the fast-re-entry rules were finalized on 2001–18 data *after*
-   that reveal. Treat recent-period numbers as expectation-setting, not
-   proof. The real test is live paper trading.
+   0.78), but the fast-re-entry rules, the crash-only throttle and the
+   sector engine's congestion-game selection were each finalized on 2001–18
+   data *after* that reveal (then checked once against 2019+, unchanged
+   thereafter — the game selection's single check: 2019+ Sharpe 0.78 →
+   0.86 vs the prior weighting; the hurdled sector refuge + 21d vol
+   window's single check: 0.86 → 0.93). Treat recent-period numbers as
+   expectation-setting, not proof. The real test is live paper trading.
 2. Hundreds of configurations were examined during development. The
    defences against cherry-picking: every parameter sits on a flat ridge
    (neighbours all work), and every mechanism was validated separately
@@ -209,10 +240,10 @@ horizon agreed in writing first.**
    pre-08/2001, EEM pre-2003) earn the T-bill rate — no backfill, no
    fictional returns.
 4. Costs are modeled at 10 bps per traded leg; at a triple-cost stress
-   (30 bps) the full-period Sharpe is still ~0.9.
-5. This is an equity strategy (beta ≈ 0.54), not market-neutral. In a
+   (30 bps) the full-period Sharpe is still ~0.90.
+5. This is an equity strategy (beta ≈ 0.55), not market-neutral. In a
    simultaneous stock+bond crash (2022) it loses double digits; it just
-   loses materially less than the alternatives.
+   loses less than the alternatives.
 
 ## Files
 
