@@ -241,7 +241,7 @@ def sector_weight_path(DI):
             cur_held = set()
             continue
         hist = rets[row.index].loc[:t].tail(GAME_CORR_DAYS)
-        corr = hist.corr().fillna(0.0).to_numpy()
+        corr = hist.corr().fillna(0.0).to_numpy(copy=True)   # copy: pandas>=3 returns a read-only view
         np.fill_diagonal(corr, 1.0)
         eq = pd.Series(congestion_equilibrium(row.to_numpy(), corr), index=row.index)
         ranked = eq.rank(ascending=False)

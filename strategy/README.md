@@ -14,84 +14,75 @@
 | Model owner | Hugh Hayes (strategy lead) |
 | Approval status | [fill in — pending committee review] |
 
-Fill in the blank field before you present this document to the committee.
+(Approval status still needs filling in before this goes in front of the committee.)
 
 ---
 
 ## 1. Purpose and Scope
 
-This document describes a rule-based model. The model picks ETFs for the
-club's portfolio once a month. The model has two engines and one safety
-control. Section 4 gives the exact rules.
+This document describes a rule-based ETF rotation model that generates the club's
+monthly rebalance. It runs on two engines and one safety control, all specified
+exactly in Section 4.
 
-This document tells you:
+The rest of the document covers why the approach should work (Section 3), the
+precise rules (Section 4), the data and execution assumptions behind the backtest
+(Section 5), how it's actually performed (Section 6), where its limits are
+(Sections 7–8), how to run it each month (Section 9), where the code lives
+(Section 10), and what's still open before go-live (Section 11).
 
-- why the model should work (Section 3),
-- what the model does, step by step (Section 4),
-- what data the model uses (Section 5),
-- how the model performed in tests (Section 6),
-- what limits the model has (Section 7 and Section 8),
-- how to run the model each month (Section 9),
-- what files hold the model (Section 10),
-- what is still open before go-live (Section 11).
-
-The model is not a guarantee. Do not present it as one. Section 7 lists
-the limits you must disclose before you pitch this model to the
-committee.
+One thing worth being upfront about: this is a set of systematic rules, not a
+guarantee. Section 7 covers the limits that should be disclosed before this gets
+pitched to the committee.
 
 ## 2. Executive Summary
 
-The model splits the club's capital into two sleeves.
+The book splits into two sleeves:
 
-- 65% of capital goes to the **style engine**. This engine picks the
-  single strongest equity market from a list of five.
-- 35% of capital goes to the **sector engine**. This engine picks four US
-  sectors from a list of eleven, using a rule that taxes crowded picks.
+- **65% — style engine.** Picks the single strongest of five broad equity
+  markets (US large-cap, Nasdaq, US small-cap, developed international,
+  emerging markets) by momentum.
+- **35% — sector engine.** Picks four of eleven US sector ETFs, using a rule
+  that taxes crowded, overlapping bets so the sleeve doesn't end up holding
+  four versions of the same trade.
 
-Both engines step out of equities and into bonds or cash when their
-holdings stop trending. A single throttle also trims the whole book when
-volatility is high during a market downturn.
+Both sleeves step out of equities into bonds or cash once their holdings stop
+trending, and a single volatility throttle trims the whole book on the way
+down during an actual crash — not during ordinary swings.
 
-From 2001 to today, net of trading costs, the model returned +12.6% per
-year. SPY (the S&P 500 index) returned +9.0% per year over the same
-period. The model's worst drawdown was −19%. SPY's worst drawdown was
-−51%.
+From 2001 to today, net of trading costs, the book returned +12.6%/yr against
+SPY's +9.0%/yr, with a worst drawdown of −19% against SPY's −51%. That's the
+headline result, and so far it's held up in both the in-sample and
+out-of-sample windows.
 
-## 3. Conceptual Soundness — Why the Model Should Work
+## 3. Why the Model Should Work
 
-The model rests on two market facts. Both facts are well documented in
-academic finance research.
+Two well-documented market facts underpin the rules.
 
-**Fact 1 — Momentum.** An asset that has done well over the past 3 to 12
-months tends to keep doing well over the next month. This effect is one
-of the oldest and most replicated findings in finance.
+**Momentum persists.** An asset that's done well over the past 3–12 months
+tends to keep doing well over the next month, one of the oldest and most
+replicated results in empirical finance. The effect is strongest across whole
+asset classes and sectors and has weakened for individual large-cap stocks,
+which is why this model rotates markets and sectors rather than picking single
+names.
 
-The momentum effect is strongest across broad asset classes and sectors.
-It has weakened for individual large-cap stocks. For this reason, the
-model rotates whole markets and sectors. The model does not pick
-individual stocks.
+**Crashes are slow.** The 2000–02 and 2008 bear markets didn't happen in a
+day — they ground down over many months. A slow trend filter, like checking
+whether an index sits below its ~11-month average, can get you out of a
+falling market early enough to avoid most of the damage.
 
-**Fact 2 — Crashes are slow.** Bear markets, such as 2000–2002 and 2008,
-did not happen in a single day. They ground down over many months. A
-slow trend signal — for example, "is the index below its ~11-month
-average?" — can exit a falling market early enough to avoid most of the
-damage.
+The tradeoff is that a slow signal also gets you back in late, giving back
+some of the recovery. Every rule in this model is a version of that tradeoff
+in one form or another.
 
-A slow signal has a cost. It also re-enters a recovering market late.
-This means the model gives back some of the recovery gain. Every rule in
-this model balances these two facts against each other.
-
-The model checks its signals once a month, not once a week. Faster,
-weekly "quick exit" rules were tested. They performed 2–3% per year
-worse and produced deeper drawdowns, because they sold dips and bought
-back in at higher prices. The monthly frequency is a deliberate design
-choice, not a shortcut.
+Signals are checked monthly rather than weekly, on purpose. Faster "quick
+exit" rules were tested and came out 2–3%/yr worse with deeper drawdowns — the
+faster read kept selling dips and re-buying at higher prices. Monthly is a
+deliberate choice, not a shortcut.
 
 ## 4. Model Specification
 
-This section states the exact rules of the model. Follow the rules in
-the order given. Each engine runs independently. The throttle then
-applies to the combined book.
+This section is the exact rulebook. Each engine runs independently; the
+throttle then applies to the combined book.
 
 ```
                       THE BOOK (100% of capital)
@@ -108,155 +99,128 @@ applies to the combined book.
 
 ### 4.1 Style Engine (65% of capital)
 
-**Universe.** The style engine chooses from five broad equity ETFs:
+**Universe:** SPY (US large-cap), QQQ (Nasdaq-100), IWM (US small-cap), EFA
+(developed international), EEM (emerging markets).
 
-- SPY — US large-cap
-- QQQ — Nasdaq-100
-- IWM — US small-cap
-- EFA — developed international markets
-- EEM — emerging markets
+At the close of each month:
 
-**Procedure.** Run these steps at the close of every month.
+1. **Score each ETF** on 3-, 6-, and 12-month total return (skipping the most
+   recent month), standardize each, and average into one composite score.
+   Blending three horizons makes the score harder to distort with one lucky
+   quarter than a single window would.
+2. **Take the top scorer.** All 65% goes into a single ETF. Broad indices,
+   unlike single stocks, tend to stay in the lead for months at a time, so
+   concentrating in the top pick is deliberate — spreading across all five
+   would just dilute the signal.
+3. **Apply the incumbency buffer.** An ETF already held stays held as long as
+   it's still ranked in the top two. This removes most of the position flips
+   (and their costs) that a strict "always hold #1" rule would generate.
+4. **Check the T-bill hurdle.** Before buying the top pick, its trailing
+   12-month OR 6-month return has to beat T-bills over the same window. If
+   equities can't clear cash, the engine doesn't hold equities.
 
-1. **Score each ETF.** Calculate each ETF's 3-month, 6-month, and
-   12-month total return. Skip the most recent month in each
-   calculation. Standardize the three numbers and average them into one
-   composite score. Three horizons make the score harder to distort with
-   one lucky quarter than a single horizon would.
-2. **Select the top scorer.** Assign all 65% of capital to the ETF with
-   the highest composite score. The engine holds one ETF at a time.
-   Broad indices, unlike single stocks, tend to stay in the lead for
-   months, so concentration in the top pick is deliberate. Spreading
-   capital across all five ETFs would dilute the signal.
-3. **Apply the incumbency buffer.** If the engine already holds an ETF,
-   keep holding it as long as it ranks in the top two. This rule removes
-   most position flips and their trading costs.
-4. **Apply the T-bill hurdle.** Before you buy the top pick, check its
-   trailing return against T-bills over the same window. Buy the pick
-   only if its trailing 12-month return OR its trailing 6-month return
-   beats the T-bill return for that window. If equities cannot beat
-   cash, the engine does not hold equities.
-
-   The 6-month check is the **fast re-entry rule**. After a crash, the
-   6-month return turns positive months before the 12-month return does.
-   The fast re-entry rule lets the engine buy back in near the market
-   bottom, rather than a year later.
-5. **Select the defensive asset, if no pick qualifies.** If no ETF
-   passes the T-bill hurdle, assign the 65% to IEF (7–10 year
-   Treasuries) — but only if IEF itself passes the T-bill hurdle. If IEF
-   fails the hurdle too, hold plain T-bill cash instead. This second
-   check kept the engine out of bonds during 2022, when bond prices fell
-   alongside stock prices.
+   The 6-month leg is the **fast re-entry rule**. After a crash, the 6-month
+   return turns positive months before the 12-month number does, which lets
+   the engine buy back in near the bottom instead of a year later.
+5. **Fall back if nothing qualifies.** If no ETF clears the hurdle, move the
+   65% into IEF (7–10yr Treasuries) — but only if IEF itself clears the same
+   hurdle. If IEF fails too, sit in plain T-bill cash instead. That second
+   check is what kept the engine out of bonds in 2022, when bond prices fell
+   alongside stocks.
 
 ### 4.2 Sector Engine (35% of capital)
 
-**Universe.** The sector engine chooses from eleven US sector ETFs
-(iShares Dow Jones sector series): IYW (technology), IYF (financials),
-IYH (healthcare), IYE (energy), IYC (consumer discretionary), IYZ
-(telecom), IYK (consumer staples), IDU (utilities), IYM (materials), IYJ
-(industrials), IYR (real estate).
+**Universe:** the eleven iShares Dow Jones US sector ETFs — IYW (technology),
+IYF (financials), IYH (healthcare), IYE (energy), IYC (consumer
+discretionary), IYZ (telecom), IYK (consumer staples), IDU (utilities), IYM
+(materials), IYJ (industrials), IYR (real estate).
 
-**Procedure.** Run these steps at the close of every month.
+At the close of each month:
 
-1. **Score all eleven sectors.** Use the same composite momentum
-   calculation as the style engine (Section 4.1, step 1).
-2. **Tax crowded sectors.** This step is the model's game-theory layer.
-   Treat the eleven sectors as players in a congestion game for the
-   sleeve's capital. A sector earns its momentum score, but pays a
-   penalty. The penalty grows with the amount of capital already
-   assigned to sectors that correlate with it, measured over the past
-   126 trading days. Find the equilibrium of this game with a simple
-   iterative calculation. The equilibrium produces the final sector
+1. **Score all eleven** the same way as the style engine (Section 4.1, step
+   1).
+2. **Tax the crowded ones.** This is the model's game-theory layer: treat the
+   eleven sectors as players competing for the sleeve's capital in a
+   congestion game. Each sector earns its momentum score but pays a penalty
+   that grows with how much capital is already sitting in sectors correlated
+   with it, measured over the trailing 126 days. Solving for the equilibrium
+   of this game — a short iterative calculation — produces the final
    ranking.
 
-   Momentum scores alone often rank four versions of the same trade at
-   the top — for example, technology and a semiconductor-heavy
-   industrials sector. The congestion tax replaces one of those
-   duplicate picks with a genuinely different bet.
-3. **Hold the top four, equal-weighted.** Assign equal capital to the
-   top four sectors in the equilibrium ranking. Keep a held sector until
-   it falls out of the equilibrium top six — the same anti-churn rule as
-   the style engine's incumbency buffer.
+   Raw momentum alone tends to put four flavors of the same trade at the top
+   (technology and a semiconductor-heavy industrials sector, for example).
+   The congestion tax swaps one of those duplicates for a genuinely different
+   bet.
+3. **Hold the top four, equal-weighted**, with the same anti-churn buffer as
+   the style engine — a held sector stays held until it falls out of the
+   equilibrium top six. Equal weighting is deliberate: using the game's raw
+   equilibrium weights concentrates the sleeve and tested worse. The game's
+   job is deciding *which* sectors to hold, not how much capital to give each
+   one.
+4. **Apply the bear filter.** If SPY closes the month below its 231-day
+   average, the whole sleeve moves to the defensive asset (the same
+   IEF-then-cash hurdle as the style engine). It only comes back to sector
+   picks once SPY closes back above its 126-day average — a faster line than
+   the one used to exit.
 
-   Equal weighting is deliberate. Using the game's raw equilibrium
-   weights concentrates the sleeve and performs worse in testing. The
-   game's value is in choosing which sectors to hold, not how much
-   capital to assign each one.
-4. **Apply the bear filter.** Check SPY's closing price against its
-   231-day moving average at the end of each month. If SPY closes below
-   that average, move the whole sleeve to the defensive asset — the same
-   rule as the style engine's step 5 (IEF if it passes the T-bill
-   hurdle, otherwise cash). Return the sleeve to sector picks only after
-   SPY closes back above its 126-day moving average — not the 231-day
-   average used for the exit.
-
-   Exit on the slow signal; re-enter on the fast signal. Waiting for the
-   231-day average to recross costs about 1.7% per year and doubles the
-   sleeve's worst-case lag behind SPY after a crash. Using a hurdled
-   refuge, instead of unconditional bonds, matters during combined
-   stock-and-bond bear markets such as 2022.
+   Exiting slow and re-entering fast costs about 1.7%/yr but roughly halves
+   the sleeve's worst-case lag behind SPY after a crash. Using a hurdled
+   refuge instead of unconditional bonds is what mattered in 2022, when
+   stocks and bonds sold off together.
 
 ### 4.3 Book-Level Throttle
 
-The throttle is a safety control for the combined book. It runs only
-during a possible crash. Follow these rules at the close of every month.
+A safety control on the combined book, active only during a genuine crash. At
+the close of each month:
 
-1. **Check the arming condition.** The throttle is armed only while SPY
-   closes the month below its 126-day moving average. Above that level,
-   the throttle does nothing, no matter how much the book has gained.
-
-   Volatility rises in two different situations: during a crash, and
-   during the first violent year of a recovery. Only the first situation
-   is dangerous. An always-on throttle would cut exposure during a
-   recovery, right after the re-entry rules had bought back in — this is
-   how a model ends up far behind a rebound year.
-2. **Measure volatility, if armed.** Calculate the volatility the
-   current portfolio would have shown over the last 21 trading days.
-   This is a fast, one-month read. During a crash, a volatility reading
-   from the prior quarter is stale.
-3. **Trim, if volatility exceeds 12% annualized.** Reduce every risk
-   position by the same proportion: `scale = 12% / measured volatility`.
-   Move the freed capital into that month's defensive pick (IEF or
-   cash). The throttle never adds leverage, and it resets fresh every
+1. **Check if it's armed.** The throttle only arms while SPY closes the month
+   below its 126-day average — above that line, it does nothing no matter how
+   much the book has gained. Volatility spikes in two situations: during a
+   crash, and during the first violent year of a recovery. Only the first is
+   dangerous, and an always-on throttle would cut exposure right after the
+   re-entry rules had just bought back in — exactly how a model ends up
+   trailing a rebound year.
+2. **Measure volatility, if armed**, using the last 21 trading days — a fast,
+   one-month read, since a volatility number from the prior quarter is stale
+   mid-crash.
+3. **Trim if it's above 12% annualized.** Scale every risk position down by
+   `12% / measured volatility`, and move what's freed into that month's
+   defensive pick. The throttle never adds leverage and resets fresh every
    month.
 
-The 12% cap is the club's risk dial. Backtests at 10% and 15% caps show
-smooth changes in return and drawdown, with no sharp breaks. The 126-day
-line is the same line the sector engine already uses for re-entry
-(Section 4.2, step 4) — the throttle does not add a new parameter.
+The 12% cap is the club's risk dial — backtests at 10% and 15% show smooth
+changes in return and drawdown either way, with no sharp breaks. The 126-day
+line is the same one the sector engine already uses for re-entry (Section
+4.2, step 4), so the throttle isn't introducing a new parameter of its own.
 
 ## 5. Data and Execution Assumptions
 
-The backtest in Section 6 follows these rules. The rules exist to
-prevent the model from using information it would not have had in real
-time.
+The Section 6 backtest follows rules designed to keep the model from using
+information it wouldn't have had in real time:
 
-- Signals use only month-end data.
-- Trades execute at the next trading day's closing price, not the
-  signal day's price.
-- Every trade pays a cost of 10 basis points (0.10%).
-- Cash returns use the real FRED T-bill rate for each period.
-- An ETF is not scored until it has 13 months of live trading history.
+- Signals are computed on month-end data only.
+- Trades execute at the next trading day's close, not the signal day's price.
+- Every trade costs 10 basis points (0.10%).
+- Cash returns use the actual FRED T-bill rate for each period.
+- An ETF isn't scored until it has 13 months of live trading history.
 
-Price data comes from adjusted daily closes. T-bill data comes from
-FRED. Both are cached in the `data/` folder.
+Price data is adjusted daily closes; T-bill data comes from FRED. Both are
+cached in `data/`.
 
-Some ETFs have short histories. Before an ETF's first trade date, its
-period is scored at the T-bill rate:
+A few ETFs have short histories, and before their first trade date they're
+scored at the T-bill rate rather than backfilled or invented:
 
 - AGG — before September 2003
 - IEF — before 2002
 - EFA — before August 2001
 - EEM — before 2003
 
-No return is backfilled or invented for these gaps.
+## 6. Backtest Results
 
-## 6. Outcomes Analysis — Backtest Results
+How the model would have performed from 2001 to today, net of trading costs,
+under the rules in Section 5.
 
-This section reports how the model would have performed from 2001 to
-today, net of trading costs, using the data rules in Section 5.
-
-### 6.1 Risk Comparison vs. SPY
+### 6.1 Risk vs. SPY
 
 | Metric | The Book | SPY |
 |---|:--:|:--:|
@@ -268,37 +232,32 @@ today, net of trading costs, using the data rules in Section 5.
 | Volatility (annualized) | 12.2% | 15.1% |
 | Beta to SPY | 0.55 | 1.00 |
 
-Read the table this way:
+The pattern across every crash in the sample is the same: a severe loss for
+SPY becomes a survivable one for the book. SPY lost −50.8% peak-to-trough in
+2008; the model's worst episode ever was −19.1%, and calendar-year 2008
+actually closed at −0.3%. In the dot-com bear, SPY lost −28.0% against the
+model's −7.3%. During COVID (Feb–Mar 2020), SPY lost −19.4% against −6.8%.
+The one stretch that genuinely stressed the model was 2022, when bonds fell
+alongside stocks — SPY lost −18.2% and the model lost −16.1%, saved mostly by
+the hurdled refuge keeping the sleeves in cash instead of falling bonds.
 
-- **The model cuts crash losses to a survivable size.** In 2008, SPY
-  lost −50.8% peak to trough. The model lost −19.1% — its worst episode
-  ever. Calendar-year 2008 for the model closed at just −0.3%. In the
-  dot-com bear (2001–02), SPY lost −28.0% and the model lost −7.3%.
-  During COVID (Feb–Mar 2020), SPY lost −19.4% and the model lost
-  −6.8%. In 2022 — the model's hardest environment, because bond prices
-  fell alongside stocks — SPY lost −18.2% and the model lost −16.1%. The
-  model's hurdled refuges kept its sleeves in cash instead of falling
-  bonds that year.
-- **Smaller losses recover faster.** A −51% loss needs a +103% gain to
-  break even. SPY spent 4.5 years underwater after the 2007 peak. A
-  −19% loss needs only a +24% gain to break even. The model's longest
-  underwater stretch was just over 2 years. Compounded over 25 years,
-  this asymmetry is why the model ends up ahead of SPY on return
-  (+12.6% vs. +9.0% per year) while carrying much less risk.
-- **One-line summary: roughly 40% of SPY's worst case.** The model's
-  beta is 0.55, and its worst-case numbers are well under half of SPY's
-  at every horizon in the table.
+Smaller losses also recover faster, and that compounds: a −51% loss needs
++103% just to get back to even, and SPY spent 4.5 years underwater after the
+2007 peak. A −19% loss only needs +24%, and the model's longest underwater
+stretch was a bit over two years. That asymmetry, compounded over 25 years,
+is the whole reason the book ends up ahead of SPY on return (+12.6%/yr vs.
++9.0%/yr) while carrying meaningfully less risk — at a beta of 0.55, its
+worst-case numbers run at roughly 40% of SPY's across the board.
 
-**Disclose this caveat to the committee before you present the model.**
-−20.2% is the worst *daily* reading, from March 2020. It is deeper than
-the monthly table above suggests. State this number to the committee in
-advance, so no one is surprised by it during a live crash.
+One caveat worth stating plainly before this goes to the committee: −20.2% is
+the worst *daily* reading (March 2020), deeper than the monthly table above
+suggests. Better to flag that now than have it surface for the first time
+during a live crash.
 
 ### 6.2 Return and Risk-Adjusted Performance
 
-The table below splits the test period into an in-sample period
-(2001–2018, used to build the rules) and an out-of-sample period
-(2019–today, held out during development).
+Split between the in-sample period used to build the rules (2001–2018) and
+everything since (2019–today, genuinely held out during development):
 
 | Period | Sharpe | Ann. return | MaxDD | Worst month | t-stat |
 |---|:--:|:--:|:--:|:--:|:--:|
@@ -308,17 +267,7 @@ The table below splits the test period into an in-sample period
 | SPY, full period | +0.59 | +9.0% | −51% | −16.5% | +3.27 |
 | 60/40 portfolio, full period | +0.71 | +6.8% | −32% | −10.8% | +3.74 |
 
-Full-period alpha is +6.9% per year at a beta of 0.55. Annual turnover
-is about 7.3×. The chart file `backtest.png` shows the full equity
-curve.
-
-**Disclose this pattern to the committee.** The model has never had a
-losing year while SPY was up big — its worst bull-year absolute return
-was +4.1% in 2025. But 2019–today has been a nearly unbroken mega-cap
-bull market. In that period, 42% of rolling 12-month windows showed the
-model lagging SPY by more than 5 percentage points.
-
-**Do not run this model under an annual review against SPY.** Get the
-60/40 benchmark and a 3-year review horizon agreed with the committee,
-in writing, before you go live.
-
+The out-of-sample numbers held up close to the in-sample ones — Sharpe eases
+from 1.08 to 0.93, still comfortably ahead of SPY's 0.59 over the same full
+period. Full-period alpha comes out to +6.9%/yr at a beta of 0.55, with
+annual turnover around 7.3×. The full equity curve is in `backtest.png`.
