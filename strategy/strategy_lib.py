@@ -11,10 +11,11 @@ THE TWO-ENGINE BOOK:
     35%  SECTOR ENGINE  top-4 of 11 iShares US sectors by CONGESTION-GAME
                         equilibrium rank: each sector's payoff is its
                         composite momentum minus a crowding tax on its
-                        correlation with where the rest of the sleeve's
-                        capital sits (Nash equilibrium via replicator
-                        dynamics), so four winners that are one trade in
-                        four wrappers get substituted, not stacked.
+                        correlation with where the rest of the BOOK's capital
+                        sits -- the other 10 sectors AND the 65% style sleeve,
+                        which enters as fixed capital (Nash equilibrium via
+                        replicator dynamics), so four winners that are one
+                        trade in four wrappers get substituted, not stacked.
                         Top-6 incumbency buffer in equilibrium rank, equal
                         weights; risk-off when SPY < 231d MA into the same
                         hurdled defensive as the style engine (IEF only if
@@ -209,25 +210,47 @@ def style_weight_path(DI):
 
 
 # ---- SECTOR engine (35%) ------------------------------------------------------------
-def congestion_equilibrium(mu, corr, lam=GAME_LAM, iters=300, eta=0.1):
+def congestion_equilibrium(mu, corr, lam=GAME_LAM, iters=300, eta=0.1,
+                           exo=None, total=1.0):
     """Nash equilibrium of the capital-congestion game: allocating weight w_i
     to asset i earns its momentum score mu_i minus a crowding tax
     lam * (corr @ w)_i that grows with how much capital already sits in
-    correlated assets. A potential game -- replicator dynamics converge to
-    the simplex maximizer of  mu.w - (lam/2) w' corr w."""
-    w = np.full(len(mu), 1.0 / len(mu))
+    correlated assets. A potential game with concave potential
+    mu.w - (lam/2) w' corr w  (corr is PSD in every month of the sample,
+    min eigenvalue 0.015), maximized over the simplex by replicator dynamics.
+
+    `exo` is a fixed per-asset crowding term for capital the players do NOT
+    control -- the 65% style sleeve -- so the tax reflects the whole book, not
+    just this sleeve. Players then divide `total` (the sleeve's 35%) among
+    themselves. exo=None, total=1.0 recovers the sectors-only game.
+
+    !! DO NOT "FIX" iters=300. It is a fixed budget, not a converged solve:
+    the final step is ~1e-5 and true convergence takes ~3400 iterations. The
+    truncation is part of the locked strategy -- against a converged solve it
+    moves the top-4 pick in 1.7% of months and the top-6 BUFFER set in 12.2%,
+    and the buffer drives turnover. Raising it changes the strategy silently.
+    (An exit assert on the step size is likewise wrong: at 1e-10 it would fire
+    on 236 of 237 months and crash the live rebalance.)"""
+    w = np.full(len(mu), total / len(mu))
+    ex = 0.0 if exo is None else exo
     for _ in range(iters):
-        grad = mu - lam * corr @ w
+        grad = mu - lam * (corr @ w + ex)
         w = w * np.exp(eta * (grad - grad.max()))  # shift for numerical stability
-        w /= w.sum()
+        w *= total / w.sum()
     return w
 
 
-def sector_weight_path(DI):
+def sector_weight_path(DI, style_path=None, w_style=W_STYLE, w_sector=W_SECTOR):
     """Top-4 sectors by congestion-game equilibrium rank (crowded momentum is
     taxed), top-6 incumbency buffer, equal weights, fast-re-entry regime -> AGG.
     The equilibrium decides only WHICH sectors to hold; sizing stays equal
-    weight (equilibrium sizing concentrates and backtests worse)."""
+    weight (equilibrium sizing concentrates and backtests worse).
+
+    `style_path` makes the tax book-aware: the style sleeve's actual holding
+    enters the game as fixed capital at w_style, so a sector is taxed on its
+    correlation with the OTHER 65% as well as with its 11 peers. Without it the
+    sleeve avoids stacking internally while the book still ran 74% tech in the
+    84% of QQQ months that also held IYW. Pass None for the sectors-only game."""
     scores = composite(DI["monthly"], SECTORS)
     reg = DI["regime"].reindex(scores.index).fillna(1.0)
     rets = DI["rets"]
@@ -240,14 +263,26 @@ def sector_weight_path(DI):
             out[t] = pd.Series({pick_defensive(DI, t): 1.0})
             cur_held = set()
             continue
-        hist = rets[row.index].loc[:t].tail(GAME_CORR_DAYS)
-        corr = hist.corr().fillna(0.0).to_numpy(copy=True)   # copy: pandas>=3 returns a read-only view
+        names = list(row.index)
+        sw = (style_path or {}).get(t, pd.Series(dtype=float))
+        spriced = [a for a in sw.index if a in rets.columns]   # CASH has no series
+        hist = rets[list(dict.fromkeys(names + spriced))].loc[:t].tail(GAME_CORR_DAYS)
+        C = hist.corr().fillna(0.0)
+        corr = C.loc[names, names].to_numpy(copy=True)   # copy: pandas>=3 returns a read-only view
         np.fill_diagonal(corr, 1.0)
-        eq = pd.Series(congestion_equilibrium(row.to_numpy(), corr), index=row.index)
+        if style_path is None:
+            exo, total = None, 1.0
+        else:
+            exo = np.zeros(len(names))
+            for a in spriced:                            # where the other 65% sits
+                exo += w_style * float(sw[a]) * C.loc[names, a].to_numpy()
+            total = w_sector
+        eq = pd.Series(congestion_equilibrium(row.to_numpy(), corr, exo=exo,
+                                              total=total), index=names)
         ranked = eq.rank(ascending=False)
         entry  = set(ranked[ranked <= TOP_K].index)
         hold   = set(ranked[ranked <= BUFFER_EXIT].index)
-        held   = list((cur_held & hold) | entry)
+        held   = sorted((cur_held & hold) | entry)       # sorted: deterministic by construction
         out[t] = pd.Series(1.0 / len(held), index=held)
         cur_held = set(held)
     return out
@@ -263,6 +298,34 @@ def combine_paths(paths_weights):
             s = s.add(p[t] * bw, fill_value=0.0)
         out[t] = s[s.abs() > 1e-12]
     return out
+
+
+def latest_formation(DI, *paths):
+    """Newest formation date that is a COMPLETE month with evaluable hurdles.
+
+    Two live traps this exists to stop, both triggered by refreshing prices
+    before the month is over:
+      1. resample("ME") opens a bucket for the current month as soon as ONE bar
+         lands in it, so a mid-month refresh invents a formation date whose
+         "monthly return" is a few days long.
+      2. FRED DGS3MO lags, so that stub month has NaN tbill6/tbill12. The style
+         hurdle reads NaN as "fail" for every asset, and pick_defensive reads it
+         as cash -- silently dumping the whole 65% book to CASH for no market
+         reason (seen 2026-08-03: EEM passing +31.5% vs 3.9% got flushed).
+
+    Signals are only valid on a finished month whose T-bill hurdle exists."""
+    common = set.intersection(*(set(p.keys()) for p in paths))
+    last_px = DI["close"].index.max()
+    ok = [t for t in common
+          if t <= last_px                                  # month actually ended
+          and not np.isnan(DI["tbill12"].get(t, np.nan))   # hurdle is evaluable
+          and not np.isnan(DI["tbill6"].get(t, np.nan))]
+    if not ok:
+        raise RuntimeError(
+            f"no valid formation date: newest price bar is {last_px.date()}; "
+            "wait for the month-end close (and for FRED to publish) before "
+            "generating a signal.")
+    return max(ok)
 
 
 def throttle_target(DI, tgt, t, book_vt=BOOK_VT):
@@ -356,8 +419,10 @@ def build_strategy(*, w_style=W_STYLE, w_sector=W_SECTOR, book_vt=BOOK_VT,
     """The locked strategy end-to-end."""
     DI = DI or get_data()
     ps = style_weight_path(DI)
-    p6 = sector_weight_path(DI)
+    p6 = sector_weight_path(DI, ps, w_style=w_style, w_sector=w_sector)
     wcomb = combine_paths([(ps, w_style), (p6, w_sector)])
+    t_last = latest_formation(DI, ps, p6)      # same rule the live path uses:
+    wcomb = {t: w for t, w in wcomb.items() if t <= t_last}   # no stub months
     return simulate(wcomb, DI, book_vt=book_vt, cost_bps=cost_bps,
                     start=start, end=end)
 

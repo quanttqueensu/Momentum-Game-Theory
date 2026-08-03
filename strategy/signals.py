@@ -14,8 +14,8 @@ refresh = "--refresh" in sys.argv
 DI = S.get_data(refresh=refresh)
 
 ps = S.style_weight_path(DI)
-p6 = S.sector_weight_path(DI)
-t  = max(set(ps) & set(p6))
+p6 = S.sector_weight_path(DI, ps)
+t  = S.latest_formation(DI, ps, p6)   # refuses stub months / NaN hurdles
 
 print(f"\nSignal date (month-end): {t.date()}   "
       f"(data through {DI['close'].index.max().date()})")

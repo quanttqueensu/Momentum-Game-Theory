@@ -45,8 +45,8 @@ SINGLE_NAME_ABORT = 0.90       # refuse a live order bigger than 90% of NLV (fat
 def compute_target(refresh):
     DI = S.get_data(refresh=refresh)
     ps = S.style_weight_path(DI)
-    p6 = S.sector_weight_path(DI)
-    t = max(set(ps) & set(p6))
+    p6 = S.sector_weight_path(DI, ps)
+    t = S.latest_formation(DI, ps, p6)   # refuses stub months / NaN hurdles
     tgt_raw = S.combine_paths([(ps, S.W_STYLE), (p6, S.W_SECTOR)])[t]
     tgt = S.throttle_target(DI, tgt_raw, t, S.BOOK_VT)
     prices = DI["close"].ffill().iloc[-1]           # latest close per ticker, for sizing
