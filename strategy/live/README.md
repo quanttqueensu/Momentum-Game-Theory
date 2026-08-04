@@ -1,4 +1,4 @@
-# Live Execution — IBKR Paper Trading
+# Live Execution, IBKR Paper Trading
 
 This folder connects **The Two-Engine Book** (the locked strategy in the parent
 folder) to an Interactive Brokers **paper** account, so it can trade for real
@@ -6,14 +6,14 @@ folder) to an Interactive Brokers **paper** account, so it can trade for real
 
 ## The mental model (read this first)
 
-- **The strategy decides WHAT to hold** from yfinance/FRED data — unchanged.
+- **The strategy decides WHAT to hold** from yfinance/FRED data, unchanged.
   `strategy_lib.py` and `signals.py` do this. IBKR is **not** the data source.
 - **IBKR is only the hands**: it tells us current positions + account value, and
   it executes the orders we hand it.
 - Your script does **not** talk to IBKR's servers directly. It talks to a
   **desktop connector app** (TWS) running on this Mac, over a local socket.
   That app must be running for any script here to work. The website
-  (Client Portal) can't be driven by a script — that's why TWS is required.
+  (Client Portal) can't be driven by a script, that's why TWS is required.
 
 ```
   strategy_lib (yfinance)  ->  target weights  ->  execute_rebalance.py
@@ -35,7 +35,7 @@ folder) to an Interactive Brokers **paper** account, so it can trade for real
 ### 1. Install TWS (paper)
 Download **Trader Workstation** from
 `interactivebrokers.com` → Trading → Platforms → Trader Workstation, and install
-it. (The "IBKR Desktop" / mobile apps won't expose the API — you need TWS.)
+it. (The "IBKR Desktop" / mobile apps won't expose the API, you need TWS.)
 
 ### 2. Get your paper login
 Paper accounts have their **own** username/password, separate from your main
@@ -56,7 +56,7 @@ In TWS: **File → Global Configuration → API → Settings**, then:
 - Click **Apply / OK**.
 
 Leave TWS running whenever you run the scripts. Note: TWS **auto-logs-out** on a
-schedule — reset that under Lock and Exit → Auto Logoff if it's a nuisance.
+schedule, reset that under Lock and Exit → Auto Logoff if it's a nuisance.
 
 ## Install the Python library (already done on this machine)
 ```
@@ -77,7 +77,7 @@ Run on the **last trading day of the month, near the close** (MOC orders must
 reach IBKR before ~15:50 ET):
 
 ```
-python3 execute_rebalance.py --refresh          # 1) DRY RUN on fresh data — prints the orders
+python3 execute_rebalance.py --refresh          # 1) DRY RUN on fresh data, prints the orders
 python3 execute_rebalance.py --refresh --live   # 2) actually place the MOC orders
 ```
 
@@ -112,4 +112,4 @@ sizing uses the last close, so the paper account works out of the box.
 - Scheduling: for now you run it by hand on rebalance day. A monthly `cron`/
   `launchd` job is a later step once you trust it.
 - Fractional shares / live IBKR sizing prices: currently whole shares sized off
-  the last close — fine at this account size.
+  the last close, fine at this account size.
