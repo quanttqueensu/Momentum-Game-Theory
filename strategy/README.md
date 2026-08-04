@@ -1,26 +1,11 @@
-# Model Documentation, The Two-Engine Book
+# The Two-Engine Book
 
-## Document Control
-
-| Field | Value |
-|---|---|
-| Model name | The Two-Engine Book |
-| Model type | Rule-based tactical asset allocation (ETF rotation) |
-| Asset scope | Liquid, exchange-traded ETFs only (equity, Treasury, cash) |
-| Intended use | Generate the club's monthly rebalance orders |
-| Intended users | Club investment committee; club portfolio manager |
-| Rebalance frequency | Monthly |
-| Document date | 2026-08-03 |
-| Model owner | Hugh Hayes (strategy lead) |
-| Approval status | [fill in, pending committee review] |
-
-(Approval status still needs filling in before this goes in front of the committee.)
-
----
+A rule-based, tactical ETF rotation strategy: liquid equity/Treasury/cash
+ETFs only, rebalanced monthly.
 
 ## 1. Purpose and Scope
 
-This document describes a rule-based ETF rotation model that generates the club's
+This document describes a rule-based ETF rotation model that generates a
 monthly rebalance. It runs on two engines and one safety control, all specified
 exactly in Section 4.
 
@@ -30,9 +15,6 @@ precise rules (Section 4), the data and execution assumptions behind the backtes
 (Sections 7–8), how to run it each month (Section 9), where the code lives
 (Section 10), and what's still open before go-live (Section 11).
 
-One thing worth being upfront about: this is a set of systematic rules, not a
-guarantee. Section 7 covers the limits that should be disclosed before this gets
-pitched to the committee.
 
 ## 2. Executive Summary
 
@@ -52,9 +34,7 @@ trending, and a single volatility throttle trims the whole book on the way
 down during an actual crash, not during ordinary swings.
 
 From 2001 to today, net of trading costs, the book returned +12.6%/yr against
-SPY's +9.0%/yr, with a worst drawdown of −19% against SPY's −51%. That's the
-headline result, and so far it's held up in both the in-sample and
-out-of-sample windows.
+SPY's +9.0%/yr, with a worst drawdown of −19% against SPY's −51%. 
 
 ## 3. Why the Model Should Work
 
@@ -201,7 +181,7 @@ the close of each month:
    defensive pick. The throttle never adds leverage and resets fresh every
    month.
 
-The 12% cap is the club's risk dial, backtests at 10% and 15% show smooth
+The 12% cap is a chosen risk dial, backtests at 10% and 15% show smooth
 changes in return and drawdown either way, with no sharp breaks. The 126-day
 line is the same one the sector engine already uses for re-entry (Section
 4.2, step 4), so the throttle isn't introducing a new parameter of its own.
@@ -262,10 +242,6 @@ is the whole reason the book ends up ahead of SPY on return (+12.6%/yr vs.
 +9.0%/yr) while carrying meaningfully less risk, at a beta of 0.55, its
 worst-case numbers run at roughly 40% of SPY's across the board.
 
-One caveat worth stating plainly before this goes to the committee: −20.2% is
-the worst *daily* reading (March 2020), deeper than the monthly table above
-suggests. Better to flag that now than have it surface for the first time
-during a live crash.
 
 ### 6.2 Return and Risk-Adjusted Performance
 
@@ -285,66 +261,8 @@ from 1.08 to 0.93, still comfortably ahead of SPY's 0.59 over the same full
 period. Full-period alpha comes out to +6.9%/yr at a beta of 0.55, with
 annual turnover around 7.3×. The full equity curve is in `backtest.png`.
 
-## 7. Limitations and Known Risks
 
-Things worth saying plainly here, not discovered for the first time in front of
-the committee.
-
-**Live track record is very early, Section 6 is a backtest.** The book placed
-its first live paper-trading orders in early August 2026 (confirm exact date
-against the IBKR trade log / TWS history before this goes to committee). There
-has not been enough time for the numbers above to be independently confirmed
-by real fills. Treat Section 6 as the model's design case until enough
-paper-trading history accumulates to compare against it directly, keep
-capturing `ib_test.py` output / TWS statements after each monthly rebalance so
-that history builds into an auditable record.
-
-**The 2019-today window is mostly, not perfectly, clean out-of-sample.** The
-big structural choices, which ETFs, the two-engine split, momentum as the
-signal, hurdle-based defensive logic, were locked before ever checking
-post-2018 performance. A handful of smaller mechanisms (the fast re-entry
-rule, the crash-only throttle, the sector engine's selection rule) were added
-and tuned later, each checked against pre-2019 data first and then confirmed
-once, not iterated, against 2019+. That's a real distinction from a strategy
-finalized once and never touched again, and it's disclosed here rather than
-glossed over.
-
-**The book lags SPY in most bull years, sometimes badly.** Since 2019 it has
-beaten SPY in only 1 of 6 calendar years SPY was up >15%, and its worst
-trailing-12-month gap versus SPY over that period was −22.8% (calendar 2019,
-where the book made +11.9% against SPY's +31.2%). Across the full 2001-today
-history the median bull-year gap is −4.2%, worst −19.4% (2019), best +12.0%
-(2020). This is structural, not a bug: anything that limits crash losses also
-gives up some rally participation. A committee judging this strictly on
-trailing 12 months against SPY alone will see it "fail" in some years even
-when it's behaving exactly as designed, see Section 8.
-
-**Daily drawdown runs deeper than the monthly numbers suggest.** The
-monthly-close table in Section 6.1 shows a worst drawdown of −19.1%; measured
-on daily NAV the worst point was −20.2% (March 2020). Anyone stress-testing
-against the monthly return series alone will underestimate the worst
-mark-to-market moment.
-
-**Costs and fills are modeled, not yet observed.** The backtest assumes 10bps
-one-way costs and next-close fills, which should be realistic for the ETFs
-traded here (all large, liquid index products) but hasn't been confirmed by
-live fills yet.
-
-**Currency.** The paper account (and likely any eventual funded account) is
-CAD-denominated while every ETF traded prices in USD. The execution bridge
-converts account value to USD before sizing (`strategy/live/execute_rebalance.py`), one more live data dependency (a live USD/CAD rate) that the backtest itself
-doesn't have to deal with.
-
-**Narrow universe, no leverage.** Sixteen tickers total (5 style ETFs, 11
-sector ETFs, 2 defensive). A shock that breaks correlations across all of them
-at once (e.g. a disorderly Treasury-market move) has no specific defense here
-beyond the T-bill hurdle already described in Section 4.
-
-**Single decision-maker.** The model, the code, and the execution bridge were
-all built and are currently operated by one person. There is no second
-reviewer on the monthly signal or on live order placement yet.
-
-## 8. Recommended Governance Before Go-Live
+## 7. Evaluation Discipline
 
 - **Pre-register the benchmark.** Evaluate against a 60/40 stock/bond blend as
   the primary comparison, not SPY alone, SPY is a 100%-equity, unhedged
@@ -355,13 +273,8 @@ reviewer on the monthly signal or on live order placement yet.
   its own design-stage expectations over the full period, a strict 1-year
   abandonment rule would pull this exact model in the middle of doing what it
   was built to do.
-- **Second reviewer.** Before this moves off paper, have someone other than the
-  strategy lead sanity-check the monthly `signals.py` output against the rules
-  in Section 4 before live orders go out.
-- **Formal sign-off.** The "Approval status" field in Document Control (top of
-  this document) should be filled in by the committee, not left blank.
 
-## 9. Operating Cadence
+## 8. Operating Cadence
 
 Monthly, near the close on the last trading day of the month:
 
@@ -379,7 +292,7 @@ Full setup (TWS install, paper account creation, API configuration) and every
 safety rail is documented in `strategy/live/README.md`, that's the onboarding
 doc for anyone running this month to month.
 
-## 10. Code Map
+## 9. Code Map
 
 | File | Role |
 |---|---|
@@ -395,12 +308,10 @@ doc for anyone running this month to month.
 
 **GitHub:** https://github.com/quanttqueensu/Momentum-Game-Theory
 
-## 11. Open Items Before Go-Live
+## 10. Open Items Before Go-Live
 
-- [ ] Committee approval / sign-off (Document Control, top of this document).
 - [ ] Accumulate enough live paper-trading history to report a real (not
       backtested) track record.
-- [ ] Second reviewer for the monthly signal, before this moves off paper.
 - [ ] Scheduling: the rebalance is currently run by hand; a monthly
       cron/launchd job is a later step once it's trusted.
 - [ ] Fractional-share / live-price sizing: currently whole shares sized off
