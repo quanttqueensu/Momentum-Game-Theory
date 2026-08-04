@@ -308,15 +308,7 @@ doc for anyone running this month to month.
 
 **GitHub:** https://github.com/quanttqueensu/Momentum-Game-Theory
 
-## 10. Open Items Before Go-Live
 
-- [ ] Accumulate enough live paper-trading history to report a real (not
-      backtested) track record.
-- [ ] Scheduling: the rebalance is currently run by hand; a monthly
-      cron/launchd job is a later step once it's trusted.
-- [ ] Fractional-share / live-price sizing: currently whole shares sized off
-      the prior close, fine at current account size, worth revisiting if the
-      account grows materially.
 
 ## References
 
