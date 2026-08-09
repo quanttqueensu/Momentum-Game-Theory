@@ -7,6 +7,7 @@ residuals.parquet
 # derived / generated artifacts
 comomentum_cache.parquet
 comomentum_cache.parquet.meta.json
-*.png
 holdings_*.csv
-layer2_gate_exposure.csv__pycache__/
+layer2_gate_exposure.csv
+__pycache__/
+*.pyc

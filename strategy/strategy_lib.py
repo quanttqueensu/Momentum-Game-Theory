@@ -3,11 +3,19 @@ strategy_lib.py  --  the club strategy, self-contained in this folder.
 
 THE TWO-ENGINE BOOK:
 
-    65%  STYLE ENGINE   top-1 of {SPY, QQQ, IWM, EFA, EEM} by composite
-                        momentum (3/6/12m z-scores), incumbency buffer 1;
-                        held only while trailing 12m OR 6m total return
-                        beats the matching T-bill return (fast re-entry);
-                        otherwise hurdled IEF, else T-bill cash.
+    65%  STYLE ENGINE   top-1 of {SPY, QQQ, IWM, EFA, EEM, IWF, IWD} by
+                        composite momentum (3/6/12m z-scores), incumbency
+                        buffer 1; held only while trailing 12m OR 6m total
+                        return beats the matching T-bill return (fast
+                        re-entry); otherwise hurdled IEF, else T-bill cash.
+                        IWF/IWD (Russell 1000 growth / value) give the sleeve
+                        the style axis its name implies and it previously
+                        lacked -- it spanned size and geography but had no
+                        growth/value dimension, so a growth- or value-led tape
+                        could only be expressed through QQQ. Added as a PAIR on
+                        purpose: adding the growth leg alone is a disguised
+                        bet on tech, and in testing the VALUE leg is the one
+                        that carries the in-sample gain (see README 6.3).
     35%  SECTOR ENGINE  top-4 of 11 iShares US sectors by CONGESTION-GAME
                         equilibrium rank: each sector's payoff is its
                         composite momentum minus a crowding tax on its
@@ -20,13 +28,25 @@ THE TWO-ENGINE BOOK:
                         weights; risk-off when SPY < 231d MA into the same
                         hurdled defensive as the style engine (IEF only if
                         it beats T-bills, else cash), re-entering once
-                        SPY > 126d MA (fast re-entry).
-    +    ONE CRASH-ONLY VOL THROTTLE: the book is never throttled while SPY
-         closes above its 126d MA (high vol in an uptrend is turbulence, not
-         danger). Below it, at each monthly rebalance, if the combined target
-         book's trailing-21d vol (asset returns x weights, never the
-         strategy's own history) exceeds 12% ann., trim all risk positions
-         pro-rata into the defensive pick. Never levered.
+                        SPY > 63d MA (fast re-entry).
+    +    THE VOL THROTTLE, DEFAULT OFF (BOOK_VT = 0.0). The machinery is intact
+         and still exercised by the backtest: while SPY closes below its
+         THROTTLE_ARM_MA (126d), if the combined target book's trailing-21d vol
+         (asset returns x weights, never the strategy's own history) exceeds
+         BOOK_VT annualized, trim all risk positions pro-rata into the
+         defensive pick. Never levered.
+
+         It is off by default because it is a pure risk dial, not an edge: it
+         cost ~1%/yr for +0.02 Sharpe. Its failure mode is structural -- after
+         a crash SPY stays below its 126d MA for months INTO the recovery, so
+         the throttle cuts exposure exactly as the fast-re-entry rules buy back
+         in (it cost 9.7 points in 2020 alone). Arming it only on a FALLING
+         126d MA was tested to fix that and does not: it gives up the COVID
+         protection without recovering the return.
+
+         Set BOOK_VT = 0.15 to run it again -- that trades ~2.5%/yr of
+         post-2019 return for ~2 points of COVID-episode drawdown. Both
+         settings are documented with full numbers in README 6.3.
 
 Everything the strategy needs lives in THIS folder.
 
@@ -50,17 +70,23 @@ CACHE_TBILL  = os.path.join(DATA, "tbill_dgs3mo.parquet")
 
 # ---- universes & locked parameters -------------------------------------------------
 SECTORS = ["IYW", "IYF", "IYH", "IYE", "IYC", "IYZ", "IYK", "IDU", "IYM", "IYJ", "IYR"]
-STYLES  = ["SPY", "QQQ", "IWM", "EFA", "EEM"]
+STYLES  = ["SPY", "QQQ", "IWM", "EFA", "EEM", "IWF", "IWD"]
 DEFENSIVE = ["AGG", "IEF"]
 ALL_TICKERS = list(dict.fromkeys(SECTORS + STYLES + DEFENSIVE))
 CASH = "CASH"
 
 W_STYLE, W_SECTOR = 0.65, 0.35
-BOOK_VT     = 0.12                     # crash-only: applies below SPY's 126d MA
+BOOK_VT     = 0.0                      # throttle OFF by default; 0.15 re-arms it (see module docstring)
 VOL_WINDOW  = 21                       # fast vol read (flat ridge 10-63; fast wins in crashes)
 TOP_K, BUFFER_EXIT = 4, 6              # sector engine
 STYLE_K, STYLE_BUFFER = 1, 1           # style engine
-REGIME_EXIT_MA, REGIME_ENTER_MA = 231, 126
+# Exit slow, re-enter fast. ENTER_MA sits on a flat ridge (63-105d all score
+# within noise of each other); 42d starts whipsawing, so this is not a peak-pick.
+REGIME_EXIT_MA, REGIME_ENTER_MA = 231, 63
+# The throttle's own arming line, deliberately SEPARATE from the sector engine's
+# re-entry line: they used to share 126d, so speeding up re-entry would have
+# silently re-tuned the throttle too.
+THROTTLE_ARM_MA = 126
 GAME_LAM, GAME_CORR_DAYS = 8.0, 126    # sector congestion game (played over all 11)
 COST_BPS    = 10.0
 PRICE_START = "1999-01-01"
@@ -150,7 +176,7 @@ def build_data(refresh=False):
             state = True
         out[t] = 1.0 if state else 0.0
     regime = pd.Series(out).reindex(idx).fillna(1.0)
-    uptrend = (spy > spy.rolling(REGIME_ENTER_MA).mean()).resample("ME").last()
+    uptrend = (spy > spy.rolling(THROTTLE_ARM_MA).mean()).resample("ME").last()
 
     return dict(close=close, rets=close.pct_change(fill_method=None),
                 monthly=monthly, exec_rets=exec_rets, tb_d=tb_d, tbill_m=tbill_m,
@@ -329,8 +355,9 @@ def latest_formation(DI, *paths):
 
 
 def throttle_target(DI, tgt, t, book_vt=BOOK_VT):
-    """Apply the crash-only vol throttle to one month's target weights.
-    No cap while SPY is above its 126d MA; below it, trim to `book_vt`."""
+    """Apply the vol throttle to one month's target weights. Disabled when
+    `book_vt` is 0 (the default). Otherwise: no cap while SPY is above its
+    THROTTLE_ARM_MA; below it, trim to `book_vt`."""
     if not book_vt:
         return tgt
     if bool(DI["uptrend"].get(t, True)):
@@ -432,15 +459,25 @@ def in_sample_mask(index, start=IS_START, end=IS_END):
     return (index >= pd.Timestamp(start)) & (index <= pd.Timestamp(end))
 
 
-def metrics(returns, mask=None):
+def metrics(returns, mask=None, rf=None):
+    """Sharpe here is a REAL Sharpe: excess of the 3m T-bill, not ret/vol.
+
+    This used to be ann_ret / ann_vol, which overstated every figure by the
+    cash rate (~0.13 over this sample) and, worse, rose mechanically when the
+    book was blended with cash -- making "hold less of it" look like a free
+    Sharpe gain when scaling a portfolio against cash leaves Sharpe flat by
+    construction. Pass `rf` to override the T-bill series."""
     r = (returns[mask] if mask is not None else returns).dropna()
     n = len(r)
     if n < 2:
         return dict(ann_ret=np.nan, ann_vol=np.nan, sharpe=np.nan,
                     tstat=np.nan, max_dd=np.nan, n=n)
+    if rf is None:
+        rf = get_data()["tbill_m"]
+    rf_r = rf.reindex(r.index).fillna(0.0) if isinstance(rf, pd.Series) else rf
     ann_ret = (1 + r).prod() ** (12 / n) - 1
     ann_vol = r.std() * np.sqrt(12)
-    sharpe  = ann_ret / ann_vol if ann_vol else np.nan
+    sharpe  = ((r - rf_r).mean() * 12) / ann_vol if ann_vol else np.nan
     tstat   = r.mean() / (r.std() / np.sqrt(n))
     eq      = (1 + r).cumprod()
     max_dd  = (eq / eq.cummax() - 1).min()

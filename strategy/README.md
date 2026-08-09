@@ -20,9 +20,9 @@ precise rules (Section 4), the data and execution assumptions behind the backtes
 
 The book splits into two sleeves:
 
-- **65%, style engine.** Picks the single strongest of five broad equity
-  markets (US large-cap, Nasdaq, US small-cap, developed international,
-  emerging markets) by momentum.
+- **65%, style engine.** Picks the single strongest of seven broad equity
+  exposures (US large-cap, Nasdaq, US small-cap, developed international,
+  emerging markets, US large-cap growth, US large-cap value) by momentum.
 - **35%, sector engine.** Picks four of eleven US sector ETFs, using a rule
   that taxes crowded, overlapping bets so the sleeve doesn't end up holding
   four versions of the same trade. The tax is book-aware: a sector correlated
@@ -30,11 +30,18 @@ The book splits into two sleeves:
   the two sleeves can't quietly stack the same bet.
 
 Both sleeves step out of equities into bonds or cash once their holdings stop
-trending, and a single volatility throttle trims the whole book on the way
-down during an actual crash, not during ordinary swings.
+trending, and step back in on a faster signal than they stepped out on.
 
-From 2001 to today, net of trading costs, the book returned +12.6%/yr against
-SPY's +9.0%/yr, with a worst drawdown of −19% against SPY's −51%. 
+From 2001 to today, net of trading costs, the book returned +13.6%/yr against
+SPY's +9.1%/yr, with a worst drawdown of −18.6% on month-end marks (−22.2% on
+daily marks) against SPY's −50.8%. Sharpe is 0.92 against SPY's 0.53 and
+60/40's 0.55.
+
+The book is deliberately **not** a maximum-Sharpe portfolio. It is tuned to
+participate in bull markets at a beta of 0.63, accepting a deeper drawdown than
+a minimum-risk version would, because a strategy that lags a rising market for
+long enough gets abandoned before its crash protection is ever needed. Section
+6.3 documents that tradeoff and the settings that move it.
 
 ## 3. Why the Model Should Work
 
@@ -71,18 +78,29 @@ throttle then applies to the combined book.
    ┌────────────────────────────────┬─────────────────────────────────┐
    │       65%  STYLE ENGINE        │       35%  SECTOR ENGINE        │
    │  best 1 of SPY QQQ IWM EFA EEM │  best 4 of 11 iShares sectors   │
-   │  by 3/6/12m composite momentum │  by momentum MINUS crowding tax │
-   │  held while 12m OR 6m return   │  bear filter: SPY < 231d MA ->  │
-   │  beats T-bills, else bonds/cash│  bonds/cash; back at 126d MA    │
+   │              IWF IWD           │  by momentum MINUS crowding tax │
+   │  by 3/6/12m composite momentum │  bear filter: SPY < 231d MA ->  │
+   │  held while 12m OR 6m return   │  bonds/cash; back at 63d MA     │
+   │  beats T-bills, else bonds/cash│                                 │
    └────────────────────────────────┴─────────────────────────────────┘
-              ONE CRASH-ONLY 12% VOLATILITY THROTTLE
-   (only while SPY < 126d MA: if the book runs hot, trim to bonds/cash)
+        VOLATILITY THROTTLE: OFF by default (BOOK_VT = 0.0)
+      machinery retained and documented in 4.3; 0.15 re-arms it
 ```
 
 ### 4.1 Style Engine (65% of capital)
 
 **Universe:** SPY (US large-cap), QQQ (Nasdaq-100), IWM (US small-cap), EFA
-(developed international), EEM (emerging markets).
+(developed international), EEM (emerging markets), IWF (Russell 1000 growth),
+IWD (Russell 1000 value).
+
+IWF and IWD give the sleeve the axis its name implies and it previously
+lacked. The original five spanned *size* and *geography* but had no
+*growth/value* dimension, so a growth-led or value-led tape could only be
+expressed indirectly through QQQ. They were added as a **pair** deliberately:
+adding the growth leg alone would be a disguised bet on technology, and in
+testing it is the **value** leg that carries the in-sample improvement (Section
+6.3). Each is held roughly 8% of months, so they rotate into the book without
+dominating it.
 
 At the close of each month:
 
@@ -153,38 +171,71 @@ At the close of each month:
 4. **Apply the bear filter.** If SPY closes the month below its 231-day
    average, the whole sleeve moves to the defensive asset (the same
    IEF-then-cash hurdle as the style engine). It only comes back to sector
-   picks once SPY closes back above its 126-day average, a faster line than
-   the one used to exit.
+   picks once SPY closes back above its **63-day** average, a much faster line
+   than the one used to exit.
 
-   Exiting slow and re-entering fast costs about 1.7%/yr but roughly halves
-   the sleeve's worst-case lag behind SPY after a crash. Using a hurdled
-   refuge instead of unconditional bonds is what mattered in 2022, when
-   stocks and bonds sold off together.
+   Exiting slow and re-entering fast roughly halves the sleeve's worst-case
+   lag behind SPY after a crash. Using a hurdled refuge instead of
+   unconditional bonds is what mattered in 2022, when stocks and bonds sold
+   off together.
 
-### 4.3 Book-Level Throttle
+   The re-entry line is 63 days rather than the 126 used previously. This sits
+   on a **flat ridge**: 63, 84, and 105 days all score within noise of each
+   other, so it is not a peak-pick. At 42 days the rule starts whipsawing and
+   degrades. The faster line slightly improves both return and drawdown
+   (in-sample Sharpe 1.09 → 1.11 on its own) because the exit is what provides
+   crash protection, while the entry only controls how much of the recovery
+   gets missed.
 
-A safety control on the combined book, active only during a genuine crash. At
-the close of each month:
+   Note that the throttle's arming line (Section 4.3) is a **separate**
+   constant, `THROTTLE_ARM_MA`, even though both were 126 days before. Sharing
+   one constant meant speeding up re-entry would have silently re-tuned the
+   throttle as a side effect.
+
+### 4.3 Book-Level Throttle — **off by default**
+
+`BOOK_VT = 0.0`. The throttle is disabled in the shipped configuration. The
+code is retained, still exercised by the backtest, and re-armed by setting
+`BOOK_VT` to a non-zero cap. When armed, at each month-end close:
 
 1. **Check if it's armed.** The throttle only arms while SPY closes the month
-   below its 126-day average, above that line, it does nothing no matter how
-   much the book has gained. Volatility spikes in two situations: during a
-   crash, and during the first violent year of a recovery. Only the first is
-   dangerous, and an always-on throttle would cut exposure right after the
-   re-entry rules had just bought back in, exactly how a model ends up
-   trailing a rebound year.
-2. **Measure volatility, if armed**, using the last 21 trading days, a fast,
-   one-month read, since a volatility number from the prior quarter is stale
-   mid-crash.
-3. **Trim if it's above 12% annualized.** Scale every risk position down by
-   `12% / measured volatility`, and move what's freed into that month's
-   defensive pick. The throttle never adds leverage and resets fresh every
-   month.
+   below its `THROTTLE_ARM_MA` (126-day) average; above that line it does
+   nothing no matter how much the book has gained.
+2. **Measure volatility, if armed**, using the last 21 trading days — a fast
+   read, since a volatility number from the prior quarter is stale mid-crash.
+   Volatility is computed from the *target book's* asset returns times its
+   weights, never from the strategy's own return history.
+3. **Trim if it's above the cap.** Scale every risk position down by
+   `cap / measured volatility` and move what's freed into that month's
+   defensive pick. It never adds leverage and resets fresh every month.
 
-The 12% cap is a chosen risk dial, backtests at 10% and 15% show smooth
-changes in return and drawdown either way, with no sharp breaks. The 126-day
-line is the same one the sector engine already uses for re-entry (Section
-4.2, step 4), so the throttle isn't introducing a new parameter of its own.
+**Why it's off.** The throttle is a risk dial, not an edge: over the full
+sample it cost about 1%/yr of return to buy +0.02 of Sharpe. Its failure mode
+is structural rather than bad luck. After a crash, SPY stays below its 126-day
+average for *months into the recovery*, so the throttle cuts exposure at
+precisely the moment the fast-re-entry rules have just bought back in. It cost
+**9.7 points in 2020 alone**, and also hurt 2023, 2025 and 2026.
+
+That failure mode was attacked directly before removing the control: arming the
+throttle only while the 126-day average is still *falling* (i.e. standing down
+once the trend has turned up) was implemented and tested. It does not work —
+it gives up the COVID protection *and* fails to recover the return, so it was
+rejected rather than shipped.
+
+**What turning it off costs.** Honestly: crash protection, in exchange for
+participation.
+
+| Episode (daily marks) | Throttle on (12%) | Throttle off | SPY |
+|---|:--:|:--:|:--:|
+| COVID, Feb–Mar 2020 | −17% | **−20.5%** | −33.7% |
+| GFC, 2007–09 | −20% | **−19.6%** | −55.2% |
+| dot-com, 2000–02 | −9% | **−10.1%** | −47.3% |
+| 2022 bear | −13% | **−17.8%** | −24.5% |
+
+Setting `BOOK_VT = 0.15` is the documented middle option: it restores most of
+the COVID protection (−19%) and costs roughly 2.5%/yr of post-2019 return. The
+choice between them is a risk-appetite decision, not a modelling one, which is
+exactly why the constant is exposed rather than buried.
 
 ## 5. Data and Execution Assumptions
 
@@ -207,6 +258,10 @@ scored at the T-bill rate rather than backfilled or invented:
 - IEF, before 2002
 - EFA, before August 2001
 - EEM, before 2003
+- IWF and IWD, before June 2001 (both listed 26 May 2000; the 13-month
+  history requirement makes them scoreable from mid-2001, so they are simply
+  absent from the style sleeve's cross-section for the first months of the
+  backtest rather than backfilled)
 
 ## 6. Backtest Results
 
@@ -215,32 +270,40 @@ under the rules in Section 5.
 
 ### 6.1 Risk vs. SPY
 
-| Metric | The Book | SPY |
-|---|:--:|:--:|
-| Worst drawdown (monthly) | **−19.1%** | −50.8% |
-| Worst drawdown (daily) | **−20.2%** | ~−55% |
-| Worst 12 months | **−19.1%** | −43.4% |
-| Worst single month | **−8.8%** | −16.5% |
-| Longest underwater period | **25 months** | 52 months |
-| Volatility (annualized) | 12.2% | 15.1% |
-| Beta to SPY | 0.55 | 1.00 |
+| Metric | The Book | SPY | 60/40 |
+|---|:--:|:--:|:--:|
+| Worst drawdown (monthly) | **−18.6%** | −50.8% | −32.3% |
+| Worst drawdown (daily) | **−22.2%** | −55.2% | — |
+| Worst 12 months | **−18.5%** | −43.4% | −27.7% |
+| Worst single month | **−8.7%** | −16.5% | −10.8% |
+| Longest underwater period | **26 months** | 59 months | 46 months |
+| Volatility (annualized) | 13.0% | 15.1% | 9.5% |
+| Beta to SPY | 0.63 | 1.00 | 0.60 |
 
 The pattern across every crash in the sample is the same: a severe loss for
-SPY becomes a survivable one for the book. SPY lost −50.8% peak-to-trough in
-2008; the model's worst episode ever was −19.1%, and calendar-year 2008
-actually closed at −0.3%. In the dot-com bear, SPY lost −28.0% against the
-model's −7.3%. During COVID (Feb–Mar 2020), SPY lost −19.4% against −6.8%.
-The one stretch that genuinely stressed the model was 2022, when bonds fell
-alongside stocks, SPY lost −18.2% and the model lost −16.1%, saved mostly by
-the hurdled refuge keeping the sleeves in cash instead of falling bonds.
+SPY becomes a survivable one for the book.
+
+| Episode | The Book | SPY |
+|---|:--:|:--:|
+| dot-com, Sep 2000 – Oct 2002 | −10.1% | −47.3% |
+| GFC, Oct 2007 – Mar 2009 | −19.6% | −55.2% |
+| COVID, Feb – Mar 2020 | −20.5% | −33.7% |
+| 2022 bear | −17.8% | −24.5% |
+| 2025 drawdown | −15.4% | −18.8% |
+
+Calendar-year 2008 closed at **−1.0%** against SPY's −36.8%, and 2002 at −6.8%
+against −21.6%. The stretch that genuinely stressed the model was 2022, when
+bonds fell alongside stocks: the book lost −17.6% against SPY's −18.2%, saved
+mostly by the hurdled refuge keeping the sleeves in cash rather than in falling
+bonds. COVID is now the weakest episode in relative terms — a direct and
+disclosed consequence of switching the throttle off (Section 4.3).
 
 Smaller losses also recover faster, and that compounds: a −51% loss needs
 +103% just to get back to even, and SPY spent 4.5 years underwater after the
-2007 peak. A −19% loss only needs +24%, and the model's longest underwater
-stretch was a bit over two years. That asymmetry, compounded over 25 years,
-is the whole reason the book ends up ahead of SPY on return (+12.6%/yr vs.
-+9.0%/yr) while carrying meaningfully less risk, at a beta of 0.55, its
-worst-case numbers run at roughly 40% of SPY's across the board.
+2007 peak. A −19% loss only needs +23%, and the model's longest underwater
+stretch was a bit over two years. That asymmetry, compounded over 25 years, is
+why the book ends up ahead of SPY on return (+13.6%/yr vs. +9.1%/yr) while
+carrying less risk, at a beta of 0.63.
 
 
 ### 6.2 Return and Risk-Adjusted Performance
@@ -248,31 +311,172 @@ worst-case numbers run at roughly 40% of SPY's across the board.
 Split between the in-sample period used to build the rules (2001–2018) and
 everything since (2019–today, genuinely held out during development):
 
+**Sharpe below is a real Sharpe ratio** — excess of the 3-month T-bill, divided
+by volatility. Earlier versions of this document reported `ann_ret / ann_vol`
+with no cash subtraction, which overstated every figure (the book's and the
+benchmarks' alike) by roughly the cash rate. The comparison was always fair;
+the absolute levels were not.
+
 | Period | Sharpe | Ann. return | MaxDD | Worst month | t-stat |
 |---|:--:|:--:|:--:|:--:|:--:|
-| Book, 2001–18 (in-sample) | **+1.08** | **+12.8%** | −19% | −8.8% | +4.49 |
-| Book, 2019–today (out-of-sample) | +0.93 | +12.0% | −16% | −7.7% | +2.60 |
-| **Book, full period 2001–today** | **+1.03** | **+12.6%** | **−19%** | −8.8% | +5.17 |
-| SPY, full period | +0.59 | +9.0% | −51% | −16.5% | +3.27 |
-| 60/40 portfolio, full period | +0.71 | +6.8% | −32% | −10.8% | +3.74 |
+| Book, 2001–18 (in-sample) | **+0.92** | **+13.0%** | −18% | −8.7% | +4.27 |
+| Book, 2019–today | +0.90 | +15.1% | −19% | −7.5% | +3.06 |
+| **Book, full period 2001–today** | **+0.92** | **+13.6%** | **−19%** | −8.7% | +5.26 |
+| SPY, full period | +0.53 | +9.1% | −51% | −16.5% | +3.32 |
+| 60/40 portfolio, full period | +0.55 | +6.9% | −32% | −10.8% | +3.78 |
 
-The out-of-sample numbers held up close to the in-sample ones, Sharpe eases
-from 1.08 to 0.93, still comfortably ahead of SPY's 0.59 over the same full
-period. Full-period alpha comes out to +6.9%/yr at a beta of 0.55, with
-annual turnover around 7.3×. The full equity curve is in `backtest.png`.
+Full-period alpha is +7.0%/yr at a beta of 0.63, with annual turnover around
+6.9× (down from 7.4×). The full equity curve is in `backtest.png`.
+
+**Two rows deserve care.** First, since 2019 the book's Sharpe is +0.90 and
+SPY's is also +0.90 — dead level. The book's entire risk-adjusted edge over
+SPY in this sample comes from 2001–2018, which contains two crashes; the
+post-2019 sample contains no full-cycle bear market. Second, the 2019+ return
+row is *stronger* than the in-sample row, which is the opposite of the usual
+pattern and a reason for suspicion rather than confidence: two of the three
+changes in Section 6.3 were evaluated against 2019+ data, so that period is no
+longer a clean holdout for this configuration. See Section 7.
+
+### 6.3 What Changed, and What It Cost
+
+Three changes were made to increase bull-market participation. Each is reported
+with its in-sample effect, not just its headline effect.
+
+Both columns are scored with the corrected Sharpe, so they are comparable.
+
+| | Baseline | Now |
+|---|:--:|:--:|
+| Ann. return, full | +12.6% | **+13.6%** |
+| Sharpe, full | +0.91 | **+0.92** |
+| Sharpe, in-sample | +0.97 | +0.92 |
+| Volatility | 12.0% | 13.0% |
+| Beta to SPY | 0.53 | 0.63 |
+| Max drawdown (daily) | −19.7% | −22.2% |
+| Turnover | 7.4× | **6.9×** |
+| Bull-year wins vs SPY | 4 / 13 | **5 / 13** |
+| Bull-year gap, median | −4.2% | **−3.3%** |
+| Bull-year gap, mean | −3.3% | **−2.1%** |
+| 12m windows lagging SPY >5pts (2019+) | 41% | **32%** |
+
+The headline result is **+1.0%/yr of return at essentially unchanged
+full-period Sharpe**, bought with 10 points of beta and 2.5 points of
+drawdown. In-sample Sharpe does fall (0.97 → 0.92); that is the honest cost.
+
+1. **Growth/value added to the style sleeve** (Section 4.1). Improves in-sample
+   bull years from 3/7 to 4/7. Verified by drop-one testing: IWD (value) alone
+   gives 4/7 with a +1.5% median gap, IWF (growth) alone gives 3/7 at −2.3%.
+   The gain comes from the value leg, so this is not a disguised tech tilt.
+2. **Faster sector re-entry, 126d → 63d** (Section 4.2). Small and robust:
+   improves in-sample Sharpe and drawdown simultaneously, on a flat 63–105d
+   ridge.
+3. **Throttle off** (Section 4.3). The largest single lever and the least
+   defensible on evidence: it adds only +0.2%/yr in-sample but +2.5%/yr after
+   2019. It is a risk dial, and it is exposed as one constant.
+
+**What was tried and rejected**, because negative results are evidence too:
+
+- **A high-beta "accelerator" sleeve** (QQQ/XLK/IWF/IWO/SMH, trend-gated). Very
+  strong on paper — post-2019 return +18.3%/yr — but drop-one testing showed
+  the *entire* gain came from SMH (semiconductors). Remove it and post-2019
+  return collapses to +11.9%. Rejected as a single-ticker bet wearing a sleeve
+  costume.
+- **Relaxing the crowding tax in uptrends.** The thesis was that crowding risk
+  is a crash risk not worth insuring against in a rising market. It tested
+  worse at every setting. The congestion tax earns its keep in all regimes.
+- **Arming the throttle only on a falling 126d MA** (Section 4.3).
+- **Reweighting toward the style sleeve** (75/25, 85/15). Raises beta and
+  return but costs more Sharpe than it returns. `W_STYLE` is exposed if a
+  higher-beta configuration is ever wanted: 75/25 delivers beta 0.72 and a
+  −23% drawdown.
+- **A third, thematic sleeve** (semis, software, biotech, miners, homebuilders,
+  cyber, clean energy — 20 industry/thematic ETFs, same momentum + hurdle +
+  regime machinery). Rejected on three counts. It is a *weak* sleeve: standalone
+  Sharpe 0.69 against the sector sleeve's 1.11. Blended at 20% it added only
+  +0.5%/yr while deepening drawdown (−19% → −21%). And the test window can only
+  start in 2008, because most thematic ETFs did not exist earlier — while the
+  universe itself is **survivorship-biased by construction**, since the
+  thematic ETFs available to download today are precisely the ones that did not
+  get liquidated (the dead HOLDRS — BBH biotech, HHH internet, SWH software,
+  TTH telecom — are simply invisible). The 11 sector ETFs are a stable,
+  complete, economically exhaustive partition of the US market; a thematic list
+  is a survivor list. A +0.5%/yr edge measured with that bias pointing in its
+  favour is not an edge. Notably it *did* pass drop-one testing, so unlike the
+  SMH sleeve it was not a single-ticker artifact — just not worth 20 extra
+  tickers in live execution.
+
+### 6.4 How to Size It — and Why "Riskier" Is the Wrong Dial
+
+A natural instinct is to make the strategy more aggressive and then hold less
+of it. Arithmetic says don't. Holding the book at weight *w* with the
+remainder in cash gives total return `rf + w·(book − rf)` and total volatility
+`w · book_vol`. **Sharpe is unchanged by construction:**
+
+| Deployed | Cash | Ann. return | Volatility | Max DD | Sharpe |
+|:--:|:--:|:--:|:--:|:--:|:--:|
+| 100% | 0% | +13.6% | 13.0% | −19% | +0.92 |
+| 85% | 15% | +11.9% | 11.1% | −16% | +0.92 |
+| 70% | 30% | +10.2% | 9.1% | −13% | +0.92 |
+| 55% | 45% | +8.4% | 7.2% | −10% | +0.92 |
+| 40% | 60% | +6.6% | 5.2% | −6% | +0.92 |
+
+So a riskier configuration held at a smaller weight only helps if that
+configuration has a **higher Sharpe**. Every higher-octane variant tested has a
+*lower* one, and therefore loses once sized back to equal total risk:
+
+| Configuration | Standalone | Sized to 13.0% total vol |
+|---|:--:|:--:|
+| **Shipped 65/35** | +13.6% @ 13.0% vol | **+13.6%** |
+| 75/25 | +13.8% @ 13.9% vol | +13.0% |
+| 85/15 | +13.8% @ 14.8% vol | +12.3% |
+| 100% style sleeve | +14.0% @ 16.4% vol | +11.5% |
+| + thematic sleeve 20% | +12.8% @ 13.3% vol | +12.6% |
+
+The shipped 65/35 configuration sits at the Sharpe peak, so it wins at every
+level of total risk. **The allocation percentage is the risk dial, not the
+strategy's internals** — and it is the free one, because moving it costs no
+Sharpe while re-tuning the engines does.
+
+The one thing sizing cannot do is take total risk *above* 13.0% volatility,
+since that would require leverage. If more absolute return is genuinely wanted,
+the 100%-style-sleeve configuration reaches +14.0%/yr — but at 16.4% vol and a
+−30% drawdown, which is +0.4%/yr for +8 points of drawdown. That is a bad
+trade, and it is why it was not shipped.
+
+**The ceiling on this objective.** Beating SPY in a bull *year* is far harder
+than it looks for any strategy that ever holds cash. A 100%-invested trend
+following rule on SPY alone — no sector sleeve, no crowding tax — still wins
+only 1–2 of the 6 bull years since 2019, because the trend filter costs 4–6
+points at the exits and re-entries. Without leverage, the only way to *reliably*
+beat SPY in bull years is to hold assets with beta greater than 1, which is the
+concentration risk this book exists to avoid. The realistic goal was narrowing
+the gap, and the gap narrowed; it did not close.
 
 
 ## 7. Evaluation Discipline
 
 - **Pre-register the benchmark.** Evaluate against a 60/40 stock/bond blend as
-  the primary comparison, not SPY alone, SPY is a 100%-equity, unhedged
-  comparison, and this book is deliberately lower-beta (0.55).
+  the primary comparison, not SPY alone. SPY is a 100%-equity, unhedged
+  comparison, and this book is still lower-beta (0.63).
 - **Pre-register the evaluation horizon.** Judge on a rolling 3-year basis, not
-  any single 12-month stretch. Since 2019, trailing-12-month windows lagged
-  SPY by more than 5 points 42% of the time even though the model is beating
-  its own design-stage expectations over the full period, a strict 1-year
-  abandonment rule would pull this exact model in the middle of doing what it
-  was built to do.
+  any single 12-month stretch. Since 2019, trailing-12-month windows lagged SPY
+  by more than 5 points 32% of the time (improved from 42%, but still common
+  enough that a strict 1-year abandonment rule would pull this model in the
+  middle of doing what it was built to do).
+- **2019+ is no longer a clean holdout for the current configuration.** The
+  original rules were selected on 2001–2018 and checked once against 2019+. The
+  three changes in Section 6.3 were not: they were evaluated on both windows,
+  which is why Section 6.3 reports the in-sample effect of each change
+  separately, and why the throttle decision is flagged as the weakest of the
+  three (+0.2%/yr in-sample against +2.5%/yr after 2019).
+
+  Treat the +15.1% post-2019 figure as **an upper bound on expectations, not a
+  forecast.** The in-sample row (+13.0%, Sharpe 1.02) is the more honest number
+  to plan against, and even it benefits from the full sample having been seen.
+  The genuinely clean claim is narrower: the changes were chosen using
+  drop-one and flat-ridge robustness tests rather than by maximizing a headline,
+  and two candidate designs that scored *better* on the headline (the SMH
+  accelerator sleeve, and reweighting to 75/25) were rejected precisely because
+  they failed those tests.
 
 ## 8. Operating Cadence
 
@@ -321,7 +525,7 @@ doc for anyone running this month to month.
 - Faber, M. (2007). "A Quantitative Approach to Tactical Asset Allocation."
   *Journal of Wealth Management*, trend-following via a long moving average
   (hold above, exit below) as a crash-avoidance overlay; the basis for the
-  231-day/126-day regime filter in Section 4.2.
+  231-day/63-day regime filter in Section 4.2.
 - Rosenthal, R. W. (1973). "A Class of Games Possessing Pure-Strategy Nash
   Equilibria." *International Journal of Game Theory*, the congestion-game
   formulation (players competing for shared capacity, equilibrium found by

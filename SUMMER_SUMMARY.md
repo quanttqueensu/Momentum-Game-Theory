@@ -15,10 +15,10 @@ orders transmitted in early August 2026.
 
 ## 1. What Was Built
 The final strategy (full detail in `strategy/README.md`) trades a fixed
-universe of 16 liquid ETFs across two independent engines — a 65% sleeve
-rotating between 5 broad equity markets, and a 35% sleeve rotating between 11
+universe of 20 liquid ETFs across two independent engines — a 65% sleeve
+rotating between 7 broad equity exposures, and a 35% sleeve rotating between 11
 US sectors using a game-theoretic selection rule — plus one book-level
-volatility control that only activates during a genuine drawdown. On top of
+volatility control, retained in code but disabled by default. On top of
 the research code, a full execution pipeline was built this summer connecting
 the strategy's monthly output to a real broker account (Interactive Brokers,
 via the `ib_async` API) so it can actually place orders, not just backtest.
@@ -51,11 +51,16 @@ Net of 10bps trading costs, next-close execution, real T-bill cash returns:
 
 | Period | Sharpe | Ann. return | Max drawdown | t-stat |
 |---|:--:|:--:|:--:|:--:|
-| In-sample, 2001–2018 | +1.08 | +12.8% | −19% | +4.49 |
-| Out-of-sample, 2019–today | +0.93 | +12.0% | −16% | +2.60 |
-| **Full period, 2001–today** | **+1.03** | **+12.6%** | **−19%** | **+5.17** |
-| SPY, full period | +0.59 | +9.0% | −51% | +3.27 |
-| 60/40 portfolio, full period | +0.71 | +6.8% | −32% | +3.74 |
+| In-sample, 2001–2018 | +0.92 | +13.0% | −18% | +4.27 |
+| 2019–today | +0.90 | +15.1% | −19% | +3.06 |
+| **Full period, 2001–today** | **+0.92** | **+13.6%** | **−19%** | **+5.26** |
+| SPY, full period | +0.53 | +9.1% | −51% | +3.32 |
+| 60/40 portfolio, full period | +0.55 | +6.9% | −32% | +3.78 |
+
+Sharpe figures are excess of the 3-month T-bill. An earlier version of this
+table divided total return by volatility with no cash subtraction, which
+inflated every row — the book's and the benchmarks' alike — by roughly the
+cash rate. The comparison was always fair; the levels were not.
 
 The strategy does **not** claim to beat SPY on raw return in every stretch —
 it beats SPY on risk-adjusted return and on drawdown, and it's designed to
@@ -64,6 +69,17 @@ for a much shallower worst case (−19% vs. SPY's −51% in the sample period).
 That trade-off, and exactly how often it shows up, is spelled out honestly in
 `strategy/README.md` Sections 6–7 — worth reading before the 1-on-1, since
 it's likely to come up.
+
+**Update, 9 Aug 2026 — bull-market participation pass.** The book was
+deliberately re-tuned to give up some risk-adjusted safety for upside: a
+growth/value axis added to the style sleeve, faster sector re-entry (126d →
+63d), and the volatility throttle switched off. Net effect is +1.1%/yr of
+return at *identical* full-period Sharpe, with beta rising 0.53 → 0.63 and max
+drawdown 19.7% → 22.2%. Bull-year wins against SPY improved from 4/13 to 5/13
+and the mean bull-year gap from −3.3% to −2.1%. Two better-scoring candidates
+were **rejected** for failing robustness tests — full write-up, including the
+rejected designs and the in-sample cost of each accepted change, in
+`strategy/README.md` Section 6.3.
 
 ## 4. Real History — Live Paper Trading
 
