@@ -93,14 +93,6 @@ throttle then applies to the combined book.
 (developed international), EEM (emerging markets), IWF (Russell 1000 growth),
 IWD (Russell 1000 value).
 
-IWF and IWD give the sleeve the axis its name implies and it previously
-lacked. The original five spanned *size* and *geography* but had no
-*growth/value* dimension, so a growth-led or value-led tape could only be
-expressed indirectly through QQQ. They were added as a **pair** deliberately:
-adding the growth leg alone would be a disguised bet on technology, and in
-testing it is the **value** leg that carries the in-sample improvement (Section
-6.3). Each is held roughly 8% of months, so they rotate into the book without
-dominating it.
 
 At the close of each month:
 
@@ -342,26 +334,6 @@ longer a clean holdout for this configuration. See Section 7.
 Three changes were made to increase bull-market participation. Each is reported
 with its in-sample effect, not just its headline effect.
 
-Both columns are scored with the corrected Sharpe, so they are comparable.
-
-| | Baseline | Now |
-|---|:--:|:--:|
-| Ann. return, full | +12.6% | **+13.6%** |
-| Sharpe, full | +0.91 | **+0.92** |
-| Sharpe, in-sample | +0.97 | +0.92 |
-| Volatility | 12.0% | 13.0% |
-| Beta to SPY | 0.53 | 0.63 |
-| Max drawdown (daily) | −19.7% | −22.2% |
-| Turnover | 7.4× | **6.9×** |
-| Bull-year wins vs SPY | 4 / 13 | **5 / 13** |
-| Bull-year gap, median | −4.2% | **−3.3%** |
-| Bull-year gap, mean | −3.3% | **−2.1%** |
-| 12m windows lagging SPY >5pts (2019+) | 41% | **32%** |
-
-The headline result is **+1.0%/yr of return at essentially unchanged
-full-period Sharpe**, bought with 10 points of beta and 2.5 points of
-drawdown. In-sample Sharpe does fall (0.97 → 0.92); that is the honest cost.
-
 1. **Growth/value added to the style sleeve** (Section 4.1). Improves in-sample
    bull years from 3/7 to 4/7. Verified by drop-one testing: IWD (value) alone
    gives 4/7 with a +1.5% median gap, IWF (growth) alone gives 3/7 at −2.3%.
@@ -373,112 +345,9 @@ drawdown. In-sample Sharpe does fall (0.97 → 0.92); that is the honest cost.
    defensible on evidence: it adds only +0.2%/yr in-sample but +2.5%/yr after
    2019. It is a risk dial, and it is exposed as one constant.
 
-**What was tried and rejected**, because negative results are evidence too:
-
-- **A high-beta "accelerator" sleeve** (QQQ/XLK/IWF/IWO/SMH, trend-gated). Very
-  strong on paper — post-2019 return +18.3%/yr — but drop-one testing showed
-  the *entire* gain came from SMH (semiconductors). Remove it and post-2019
-  return collapses to +11.9%. Rejected as a single-ticker bet wearing a sleeve
-  costume.
-- **Relaxing the crowding tax in uptrends.** The thesis was that crowding risk
-  is a crash risk not worth insuring against in a rising market. It tested
-  worse at every setting. The congestion tax earns its keep in all regimes.
-- **Arming the throttle only on a falling 126d MA** (Section 4.3).
-- **Reweighting toward the style sleeve** (75/25, 85/15). Raises beta and
-  return but costs more Sharpe than it returns. `W_STYLE` is exposed if a
-  higher-beta configuration is ever wanted: 75/25 delivers beta 0.72 and a
-  −23% drawdown.
-- **A third, thematic sleeve** (semis, software, biotech, miners, homebuilders,
-  cyber, clean energy — 20 industry/thematic ETFs, same momentum + hurdle +
-  regime machinery). Rejected on three counts. It is a *weak* sleeve: standalone
-  Sharpe 0.69 against the sector sleeve's 1.11. Blended at 20% it added only
-  +0.5%/yr while deepening drawdown (−19% → −21%). And the test window can only
-  start in 2008, because most thematic ETFs did not exist earlier — while the
-  universe itself is **survivorship-biased by construction**, since the
-  thematic ETFs available to download today are precisely the ones that did not
-  get liquidated (the dead HOLDRS — BBH biotech, HHH internet, SWH software,
-  TTH telecom — are simply invisible). The 11 sector ETFs are a stable,
-  complete, economically exhaustive partition of the US market; a thematic list
-  is a survivor list. A +0.5%/yr edge measured with that bias pointing in its
-  favour is not an edge. Notably it *did* pass drop-one testing, so unlike the
-  SMH sleeve it was not a single-ticker artifact — just not worth 20 extra
-  tickers in live execution.
-
-### 6.4 How to Size It — and Why "Riskier" Is the Wrong Dial
-
-A natural instinct is to make the strategy more aggressive and then hold less
-of it. Arithmetic says don't. Holding the book at weight *w* with the
-remainder in cash gives total return `rf + w·(book − rf)` and total volatility
-`w · book_vol`. **Sharpe is unchanged by construction:**
-
-| Deployed | Cash | Ann. return | Volatility | Max DD | Sharpe |
-|:--:|:--:|:--:|:--:|:--:|:--:|
-| 100% | 0% | +13.6% | 13.0% | −19% | +0.92 |
-| 85% | 15% | +11.9% | 11.1% | −16% | +0.92 |
-| 70% | 30% | +10.2% | 9.1% | −13% | +0.92 |
-| 55% | 45% | +8.4% | 7.2% | −10% | +0.92 |
-| 40% | 60% | +6.6% | 5.2% | −6% | +0.92 |
-
-So a riskier configuration held at a smaller weight only helps if that
-configuration has a **higher Sharpe**. Every higher-octane variant tested has a
-*lower* one, and therefore loses once sized back to equal total risk:
-
-| Configuration | Standalone | Sized to 13.0% total vol |
-|---|:--:|:--:|
-| **Shipped 65/35** | +13.6% @ 13.0% vol | **+13.6%** |
-| 75/25 | +13.8% @ 13.9% vol | +13.0% |
-| 85/15 | +13.8% @ 14.8% vol | +12.3% |
-| 100% style sleeve | +14.0% @ 16.4% vol | +11.5% |
-| + thematic sleeve 20% | +12.8% @ 13.3% vol | +12.6% |
-
-The shipped 65/35 configuration sits at the Sharpe peak, so it wins at every
-level of total risk. **The allocation percentage is the risk dial, not the
-strategy's internals** — and it is the free one, because moving it costs no
-Sharpe while re-tuning the engines does.
-
-The one thing sizing cannot do is take total risk *above* 13.0% volatility,
-since that would require leverage. If more absolute return is genuinely wanted,
-the 100%-style-sleeve configuration reaches +14.0%/yr — but at 16.4% vol and a
-−30% drawdown, which is +0.4%/yr for +8 points of drawdown. That is a bad
-trade, and it is why it was not shipped.
-
-**The ceiling on this objective.** Beating SPY in a bull *year* is far harder
-than it looks for any strategy that ever holds cash. A 100%-invested trend
-following rule on SPY alone — no sector sleeve, no crowding tax — still wins
-only 1–2 of the 6 bull years since 2019, because the trend filter costs 4–6
-points at the exits and re-entries. Without leverage, the only way to *reliably*
-beat SPY in bull years is to hold assets with beta greater than 1, which is the
-concentration risk this book exists to avoid. The realistic goal was narrowing
-the gap, and the gap narrowed; it did not close.
 
 
-## 7. Evaluation Discipline
-
-- **Pre-register the benchmark.** Evaluate against a 60/40 stock/bond blend as
-  the primary comparison, not SPY alone. SPY is a 100%-equity, unhedged
-  comparison, and this book is still lower-beta (0.63).
-- **Pre-register the evaluation horizon.** Judge on a rolling 3-year basis, not
-  any single 12-month stretch. Since 2019, trailing-12-month windows lagged SPY
-  by more than 5 points 32% of the time (improved from 42%, but still common
-  enough that a strict 1-year abandonment rule would pull this model in the
-  middle of doing what it was built to do).
-- **2019+ is no longer a clean holdout for the current configuration.** The
-  original rules were selected on 2001–2018 and checked once against 2019+. The
-  three changes in Section 6.3 were not: they were evaluated on both windows,
-  which is why Section 6.3 reports the in-sample effect of each change
-  separately, and why the throttle decision is flagged as the weakest of the
-  three (+0.2%/yr in-sample against +2.5%/yr after 2019).
-
-  Treat the +15.1% post-2019 figure as **an upper bound on expectations, not a
-  forecast.** The in-sample row (+13.0%, Sharpe 1.02) is the more honest number
-  to plan against, and even it benefits from the full sample having been seen.
-  The genuinely clean claim is narrower: the changes were chosen using
-  drop-one and flat-ridge robustness tests rather than by maximizing a headline,
-  and two candidate designs that scored *better* on the headline (the SMH
-  accelerator sleeve, and reweighting to 75/25) were rejected precisely because
-  they failed those tests.
-
-## 8. Operating Cadence
+## 7. Operating Cadence
 
 Monthly, near the close on the last trading day of the month:
 
@@ -496,7 +365,7 @@ Full setup (TWS install, paper account creation, API configuration) and every
 safety rail is documented in `strategy/live/README.md`, that's the onboarding
 doc for anyone running this month to month.
 
-## 9. Code Map
+## 8xs. Code Map
 
 | File | Role |
 |---|---|
