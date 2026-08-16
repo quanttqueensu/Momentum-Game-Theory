@@ -40,6 +40,21 @@ from ib_config import HOST, PORT, CLIENT_ID, REQUIRE_PAPER_ACCOUNT  # noqa: E402
 MOC_CUTOFF = (15, 50)          # ET hour, minute -- IBKR stops accepting MOC after this
 SINGLE_NAME_ABORT = 0.90       # refuse a live order bigger than 90% of NLV (fat-finger guard)
 
+# Size the book off slightly less than net liquidation so the account never has
+# to borrow to fill its own orders.
+#
+# Why this is needed at all: targeting 100% of NLV means target cash is exactly
+# zero, so ANY overshoot borrows. Two things overshoot. Whole-share rounding is
+# worth a few hundred dollars. Worse, shares are sized off the last close but
+# MOC fills at the NEXT close, so an overnight gap changes what the order
+# actually costs -- and no buffer can be proven sufficient against that, because
+# the fill price is unknowable when the order is sent. 0.5% of a ~750k book is
+# ~3,750 USD of headroom, which covers rounding and a normal overnight move.
+#
+# The cost of holding it back is trivial: 0.5% uninvested against a ~13.6%/yr
+# book is under 0.07%/yr, versus ~1.6%/yr for financing the book with a loan.
+CASH_BUFFER_PCT = 0.5
+
 
 # ---- 1. the strategy's target book (same math as signals.py) -----------------------
 def compute_target(refresh):
@@ -67,6 +82,22 @@ def moc_time_warning():
     return f"  Time check OK: {now:%H:%M} ET, before the {MOC_CUTOFF[0]}:{MOC_CUTOFF[1]:02d} ET MOC cutoff."
 
 
+def cash_by_currency(ib, acct):
+    """Per-currency cash balances (mirrors the helper in convert_cad_to_usd.py).
+
+    accountSummary()'s TotalCashValue is the NETTED figure across currencies, so
+    a big positive CAD balance sitting next to a big negative USD balance shows
+    up as a small, healthy-looking number. The per-currency breakdown is the only
+    way to see a margin loan, and it lives under IBKR's '$LEDGER-CashBalance'
+    tags -- note the '$LEDGER-' prefix; the bare 'CashBalance' tag returns
+    nothing for this field."""
+    out = {}
+    for v in ib.accountValues(acct):
+        if v.tag == "$LEDGER-CashBalance" and v.currency and v.currency != "BASE":
+            out[v.currency] = float(v.value)
+    return out
+
+
 def fx_base_to_usd(base_ccy):
     """USD per 1 unit of the account's base currency (1.0 if already USD).
     The ETFs price in USD but a CAD account reports its value in CAD, so we
@@ -88,6 +119,8 @@ def main():
     ap.add_argument("--live", action="store_true", help="actually place MOC orders (default is dry run)")
     ap.add_argument("--yes", action="store_true", help="skip the typed confirmation in --live mode")
     ap.add_argument("--allow-live-account", action="store_true", help="override the paper-account safety check (DANGER)")
+    ap.add_argument("--buffer-pct", type=float, default=CASH_BUFFER_PCT,
+                    help=f"%% of account value held back as cash so orders never borrow (default {CASH_BUFFER_PCT})")
     args = ap.parse_args()
 
     # --- strategy side ---
@@ -134,6 +167,28 @@ def main():
               f"   (FX {base_ccy}->USD = {fx:.4f})")
         print(f"  Sizing the book off ${nlv:,.2f} USD.")
 
+    # Per-currency cash. This used to be printed only in the USD branch, which is
+    # how a 710k USD margin loan sat on the account unnoticed for two weeks: the
+    # netted TotalCashValue looked fine and nothing ever showed the two sides.
+    cash_ccy = cash_by_currency(ib, acct)
+    usd_cash = cash_ccy.get("USD", 0.0)
+    if cash_ccy:
+        print("  Cash by currency: " +
+              "   ".join(f"{c} {v:,.2f}" for c, v in sorted(cash_ccy.items())))
+    if usd_cash < 0:
+        print(f"\n  !! WARNING: USD cash is {usd_cash:,.2f}. This book is being funded by an")
+        print( "     IBKR margin loan rather than by your own cash, which costs the USD/CAD")
+        print( "     interest differential (~1.6%/yr when this was last measured) and is not")
+        print( "     modelled anywhere in the backtest.")
+        print( "     Fix: python3 convert_cad_to_usd.py --live")
+
+    # Hold back a sliver so the orders can be paid for out of cash + sale
+    # proceeds rather than out of an IBKR loan (see CASH_BUFFER_PCT).
+    nlv_investable = nlv * (1.0 - args.buffer_pct / 100.0)
+    if args.buffer_pct:
+        print(f"  Sizing target book off ${nlv_investable:,.2f} USD "
+              f"({100 - args.buffer_pct:g}% of NLV; {args.buffer_pct:g}% held back as cash)")
+
     current = {p.contract.symbol: int(p.position) for p in ib.positions(acct)
                if p.contract.secType == "STK"}
 
@@ -146,7 +201,7 @@ def main():
         if px != px or px <= 0:                 # NaN or bad price
             print(f"  WARNING: no usable price for {tkr}; skipping it.")
             continue
-        target_shares[tkr] = int(round(w * nlv / px))
+        target_shares[tkr] = int(round(w * nlv_investable / px))
         target_pct[tkr] = w
 
     rows, abort_flags = [], []
@@ -166,21 +221,69 @@ def main():
     # sells first so cash is freed before buys
     rows.sort(key=lambda r: (r[4] > 0, r[0]))
 
+    # Hard funding backstop. The buffer above should make this unnecessary, but
+    # if the buys still exceed what cash + sale proceeds can pay for, scale every
+    # buy down proportionally rather than letting IBKR quietly lend the
+    # difference. MOC means buys and sells fill in the same auction and settle
+    # together, so sale proceeds are available to the purchases.
+    buys  = sum(r[6] for r in rows if r[5] == "BUY")
+    sells = sum(r[6] for r in rows if r[5] == "SELL")
+    # max(0, ...): a pre-existing debit is not spendable cash. Without the clamp
+    # an existing loan makes "available" negative, which is not a meaningful
+    # amount of money to size against.
+    available = max(0.0, usd_cash) + sells
+    trim_note = None
+    if buys > available:
+        factor = max(0.0, available / buys) if buys else 0.0
+        trimmed = []
+        for tkr, pct, csh, tsh, delta, action, notional, px in rows:
+            if action == "BUY":
+                delta = int(delta * factor)          # int() floors toward zero
+                if delta == 0:
+                    continue
+                tsh, notional = csh + delta, abs(delta) * px
+            trimmed.append((tkr, pct, csh, tsh, delta, action, notional, px))
+        trim_note = (f"buys scaled to {factor:.1%} of target "
+                     f"(${buys:,.0f} wanted, ${available:,.0f} available) so nothing is borrowed")
+        rows = trimmed
+        buys = sum(r[6] for r in rows if r[5] == "BUY")
+
     print("\nTARGET BOOK vs CURRENT  (MOC orders to place):")
     print(f"  {'SYM':<6}{'TGT%':>7}{'HAVE':>8}{'WANT':>8}{'DELTA':>8}  {'SIDE':<5}{'~NOTIONAL':>13}")
     if not rows:
-        print("  (already at target -- nothing to trade)")
+        print("  (all orders cancelled by the funding guard -- see below)" if trim_note
+              else "  (already at target -- nothing to trade)")
     for tkr, pct, csh, tsh, delta, action, notional, px in rows:
         print(f"  {tkr:<6}{pct:>6.0%}{csh:>8}{tsh:>8}{delta:>+8}  {action:<5}{notional:>13,.0f}")
     cash_pct = float(tgt.get(S.CASH, 0.0))
     if cash_pct > 1e-6:
         print(f"  (+ {cash_pct:.0%} left in cash by design)")
 
+    # Funding report. Approximate: the real fill prices are not known until the
+    # closing auction, so an unusually large overnight gap can still move this.
+    projected_usd = usd_cash + sells - buys
+    print(f"\n  Funding: USD cash {usd_cash:,.0f} + sells {sells:,.0f} - buys {buys:,.0f}"
+          f"  ->  {projected_usd:,.0f}")
+    if trim_note:
+        print(f"  !! {trim_note}")
+    if projected_usd < 0:
+        print(f"  !! Still ~{-projected_usd:,.0f} USD short. The shortfall is the existing")
+        print( "     margin loan, not these orders. Run convert_cad_to_usd.py --live first.")
+    else:
+        print("     Fully funded from USD cash and sale proceeds. Nothing borrowed.")
+
     print("\n" + moc_time_warning())
 
     if abort_flags:
         print(f"\n  ABORT: order(s) for {abort_flags} exceed {SINGLE_NAME_ABORT:.0%} of NLV -- looks wrong. "
               "Check prices/weights before trading.")
+        ib.disconnect()
+        return
+
+    if args.live and usd_cash < 0:
+        print(f"\n  ABORT: the account is carrying a {-usd_cash:,.2f} USD margin loan. Buying more"
+              "\n  would deepen it. Clear it first, then re-run:"
+              "\n      python3 convert_cad_to_usd.py --live")
         ib.disconnect()
         return
 
