@@ -73,8 +73,9 @@ Expect: your `DU…` account, its value, and current positions. If it fails, the
 error names the setup step to fix.
 
 ### The monthly rebalance
-Run on the **last trading day of the month, near the close** (MOC orders must
-reach IBKR before ~15:50 ET):
+Run on the **first trading day after month-end** (the model forms its signal
+from the completed month-end close and executes at the following trading day's
+close). MOC orders must reach IBKR before ~15:50 ET:
 
 ```
 python3 execute_rebalance.py --refresh          # 1) DRY RUN on fresh data, prints the orders

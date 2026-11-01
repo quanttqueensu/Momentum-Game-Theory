@@ -459,6 +459,100 @@ def in_sample_mask(index, start=IS_START, end=IS_END):
     return (index >= pd.Timestamp(start)) & (index <= pd.Timestamp(end))
 
 
+def equity_curve(returns, initial=1.0):
+    """Turn periodic returns into an equity curve with an explicit start value.
+
+    Keeping the starting dollar in the series matters: without it, a loss in
+    the first observed period incorrectly looks like a new high rather than a
+    drawdown.
+    """
+    r = returns.dropna().sort_index()
+    if r.empty:
+        return pd.Series(dtype=float)
+    anchor = r.index[0] - pd.Timedelta(nanoseconds=1)
+    return pd.concat([
+        pd.Series([float(initial)], index=pd.DatetimeIndex([anchor])),
+        float(initial) * (1 + r).cumprod(),
+    ])
+
+
+def drawdown_episodes(equity):
+    """Return every peak-to-recovery drawdown in an equity/NAV series.
+
+    ``recovery`` is ``NaT`` for a drawdown still in progress. Durations are
+    calendar days, which makes monthly and daily curves directly comparable.
+    """
+    eq = equity.dropna().sort_index()
+    columns = ["peak", "trough", "recovery", "max_dd", "days_to_trough",
+               "underwater_days", "recovered"]
+    if eq.empty:
+        return pd.DataFrame(columns=columns)
+
+    peak_date, peak_value = eq.index[0], float(eq.iloc[0])
+    active = None
+    episodes = []
+    for date, value in eq.iloc[1:].items():
+        value = float(value)
+        if value >= peak_value:
+            if active is not None:
+                episodes.append(dict(
+                    peak=active["peak"], trough=active["trough"], recovery=date,
+                    max_dd=active["trough_value"] / active["peak_value"] - 1,
+                    days_to_trough=(active["trough"] - active["peak"]).days,
+                    underwater_days=(date - active["peak"]).days,
+                    recovered=True,
+                ))
+                active = None
+            peak_date, peak_value = date, value
+        else:
+            if active is None:
+                active = dict(peak=peak_date, peak_value=peak_value,
+                              trough=date, trough_value=value)
+            elif value < active["trough_value"]:
+                active["trough"], active["trough_value"] = date, value
+
+    if active is not None:
+        episodes.append(dict(
+            peak=active["peak"], trough=active["trough"], recovery=pd.NaT,
+            max_dd=active["trough_value"] / active["peak_value"] - 1,
+            days_to_trough=(active["trough"] - active["peak"]).days,
+            underwater_days=(eq.index[-1] - active["peak"]).days,
+            recovered=False,
+        ))
+    return pd.DataFrame(episodes, columns=columns)
+
+
+def drawdown_stats(returns=None, *, equity=None):
+    """Summarise drawdown depth, timing, recovery, and time underwater."""
+    if equity is None:
+        if returns is None:
+            raise ValueError("pass returns or equity")
+        equity = equity_curve(returns)
+    eq = equity.dropna().sort_index()
+    if eq.empty:
+        return dict(max_dd=np.nan, current_dd=np.nan, peak=pd.NaT,
+                    trough=pd.NaT, recovery=pd.NaT, underwater_days=0,
+                    longest_underwater_days=0, episodes=pd.DataFrame())
+
+    running_peak = eq.cummax()
+    dd = eq / running_peak - 1
+    trough = dd.idxmin()
+    peak = eq.loc[:trough].idxmax()
+    after = eq.loc[trough:]
+    recovered = after[after >= float(eq.loc[peak])]
+    recovery = recovered.index[0] if len(recovered) else pd.NaT
+    episodes = drawdown_episodes(eq)
+    return dict(
+        max_dd=float(dd.min()), current_dd=float(dd.iloc[-1]),
+        peak=peak, trough=trough, recovery=recovery,
+        underwater_days=(eq.index[-1] - running_peak.idxmax()).days
+        if dd.iloc[-1] < 0 else 0,
+        longest_underwater_days=int(episodes["underwater_days"].max())
+        if len(episodes) else 0,
+        episodes=episodes,
+    )
+
+
 def metrics(returns, mask=None, rf=None):
     """Sharpe here is a REAL Sharpe: excess of the 3m T-bill, not ret/vol.
 
@@ -471,7 +565,7 @@ def metrics(returns, mask=None, rf=None):
     n = len(r)
     if n < 2:
         return dict(ann_ret=np.nan, ann_vol=np.nan, sharpe=np.nan,
-                    tstat=np.nan, max_dd=np.nan, n=n)
+                    tstat=np.nan, max_dd=np.nan, calmar=np.nan, n=n)
     if rf is None:
         rf = get_data()["tbill_m"]
     rf_r = rf.reindex(r.index).fillna(0.0) if isinstance(rf, pd.Series) else rf
@@ -479,10 +573,11 @@ def metrics(returns, mask=None, rf=None):
     ann_vol = r.std() * np.sqrt(12)
     sharpe  = ((r - rf_r).mean() * 12) / ann_vol if ann_vol else np.nan
     tstat   = r.mean() / (r.std() / np.sqrt(n))
-    eq      = (1 + r).cumprod()
+    eq      = equity_curve(r)
     max_dd  = (eq / eq.cummax() - 1).min()
+    calmar  = ann_ret / abs(max_dd) if max_dd < 0 else np.nan
     return dict(ann_ret=ann_ret, ann_vol=ann_vol, sharpe=sharpe,
-                tstat=tstat, max_dd=max_dd, n=n)
+                tstat=tstat, max_dd=max_dd, calmar=calmar, n=n)
 
 
 def roll12(r):

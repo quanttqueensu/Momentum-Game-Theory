@@ -37,8 +37,21 @@ def report(label, x, a, b):
     mt = S.metrics(x, m)
     xx = x[m].dropna()
     print(f"  {label:<28} Sharpe {mt['sharpe']:+5.2f}  ret {mt['ann_ret']:+6.1%}  "
-          f"vol {mt['ann_vol']:5.1%}  DD {mt['max_dd']:+5.0%}  worst {xx.min():+6.1%}  "
+          f"vol {mt['ann_vol']:5.1%}  DD {mt['max_dd']:+5.0%}  Calmar {mt['calmar']:4.2f}  "
+          f"worst {xx.min():+6.1%}  "
           f"t {mt['tstat']:+5.2f}")
+
+
+def date_or_dash(value):
+    return "--" if pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%d")
+
+
+def print_drawdown_summary(label, returns):
+    dd = S.drawdown_stats(returns)
+    print(f"  {label:<20} max {dd['max_dd']:+6.1%}  current {dd['current_dd']:+6.1%}  "
+          f"peak {date_or_dash(dd['peak'])}  trough {date_or_dash(dd['trough'])}  "
+          f"recovered {date_or_dash(dd['recovery'])}  "
+          f"longest underwater {dd['longest_underwater_days']:>4}d")
 
 
 print("\n" + "=" * 96)
@@ -85,8 +98,24 @@ print(f"\nbull-year gaps: median {np.median(gaps_bull):+.1%}, "
       f"({len(gaps_bull)} bull years)")
 
 nav = st["nav"]
-print(f"[daily-NAV max drawdown]  FULL {(nav / nav.cummax() - 1).min():+.1%}   "
+daily_dd = S.drawdown_stats(equity=nav)
+print("\n[drawdown diagnostics, monthly marks]")
+print_drawdown_summary("Two-engine book", r)
+print_drawdown_summary("SPY buy-and-hold", spy.loc[r.index.min():END])
+print_drawdown_summary("60/40", bal.loc[r.index.min():END])
+print(f"\n[daily strategy NAV]      max {daily_dd['max_dd']:+.1%}  "
+      f"current {daily_dd['current_dd']:+.1%}  "
+      f"longest underwater {daily_dd['longest_underwater_days']}d  "
       f"turnover {st['ann_turnover']:.1f}x/yr")
+
+print("\n[5 worst strategy drawdowns, daily NAV]")
+print(f"  {'peak':<12}{'trough':<12}{'recovery':<12}{'depth':>8}"
+      f"{'to trough':>12}{'underwater':>12}")
+worst = daily_dd["episodes"].sort_values("max_dd").head(5)
+for _, ep in worst.iterrows():
+    print(f"  {date_or_dash(ep['peak']):<12}{date_or_dash(ep['trough']):<12}"
+          f"{date_or_dash(ep['recovery']):<12}{ep['max_dd']:>8.1%}"
+          f"{int(ep['days_to_trough']):>10}d{int(ep['underwater_days']):>10}d")
 
 # ---- chart --------------------------------------------------------------------------
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 9),
@@ -101,9 +130,10 @@ ax1.set_yscale("log")
 ax1.set_title("The Two-Engine Book, 2001 -> present (net 10 bps; dashed = 2019)")
 ax1.set_ylabel("Growth of $1"); ax1.legend(loc="upper left"); ax1.grid(alpha=0.3)
 
-for label, x, c in [("Book", r, "#1f77b4"), ("SPY", spy, "#d62728")]:
+for label, x, c in [("Book", r, "#1f77b4"), ("SPY", spy, "#d62728"),
+                    ("60/40", bal, "#ff7f0e")]:
     xx = x[x.index >= pd.Timestamp(S.IS_START)].dropna()
-    eq = (1 + xx).cumprod()
+    eq = S.equity_curve(xx)
     ax2.fill_between(eq.index, eq / eq.cummax() - 1, 0, color=c, alpha=0.4, label=label)
 ax2.axvline(pd.Timestamp(OOS_START), color="k", ls="--", lw=1, alpha=0.6)
 ax2.set_title("Drawdown"); ax2.legend(); ax2.grid(alpha=0.3)

@@ -349,10 +349,11 @@ with its in-sample effect, not just its headline effect.
 
 ## 7. Operating Cadence
 
-Monthly, near the close on the last trading day of the month:
+Monthly, on the first trading day after month-end and before the MOC cutoff
+(currently about 15:50 ET):
 
-1. `python3 strategy/signals.py --refresh`, prints the target book
-   (informational only, no IBKR connection).
+1. `python3 strategy/signals.py --refresh`, uses the completed month-end close
+   and prints the target book (informational only, no IBKR connection).
 2. `python3 strategy/live/execute_rebalance.py --refresh`, dry run against the
    live paper account; prints the exact order ticket.
 3. Read the order ticket. If it looks right:

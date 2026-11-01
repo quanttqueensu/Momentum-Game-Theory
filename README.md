@@ -9,7 +9,9 @@ Everything lives in [`strategy/`](strategy/):
 - `strategy/README.md`, how it works, the results, and how to frame it
   (technical/model documentation, incl. limitations and governance)
 - `python3 strategy/signals.py --refresh`, the monthly rebalance sheet
-- `python3 strategy/backtest.py`, the full 2001→present backtest
+- `python3 strategy/backtest.py`, the full 2001→present backtest, including
+  drawdown depth, dates, recovery time, current drawdown, and the five worst
+  daily drawdown episodes
 - [`strategy/live/`](strategy/live/), the IBKR paper-trading execution bridge;
   `strategy/live/README.md` is the onboarding doc for running the monthly
   rebalance end to end

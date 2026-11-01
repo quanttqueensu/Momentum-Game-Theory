@@ -52,7 +52,7 @@ SINGLE_NAME_ABORT = 0.90       # refuse a live order bigger than 90% of NLV (fat
 # ~3,750 USD of headroom, which covers rounding and a normal overnight move.
 #
 # The cost of holding it back is trivial: 0.5% uninvested against a ~13.6%/yr
-# book is under 0.07%/yr, versus ~1.6%/yr for financing the book with a loan.
+# book is under 0.07%/yr, versus ~1.8%/yr for financing the book with a loan.
 CASH_BUFFER_PCT = 0.5
 
 
@@ -178,7 +178,7 @@ def main():
     if usd_cash < 0:
         print(f"\n  !! WARNING: USD cash is {usd_cash:,.2f}. This book is being funded by an")
         print( "     IBKR margin loan rather than by your own cash, which costs the USD/CAD")
-        print( "     interest differential (~1.6%/yr when this was last measured) and is not")
+        print( "     interest differential (~1.8%/yr measured over the loan period) and is not")
         print( "     modelled anywhere in the backtest.")
         print( "     Fix: python3 convert_cad_to_usd.py --live")
 
