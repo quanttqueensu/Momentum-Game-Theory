@@ -343,7 +343,10 @@ def latest_formation(DI, *paths):
     common = set.intersection(*(set(p.keys()) for p in paths))
     last_px = DI["close"].index.max()
     ok = [t for t in common
-          if t <= last_px                                  # month actually ended
+          # month actually ended: "ME" labels are calendar month-ends, so a
+          # month ending on a weekend (Oct 31 2026 = Sat) must be compared on
+          # its last business day, or it is wrongly rejected as a stub
+          if pd.offsets.BMonthEnd().rollback(t) <= last_px
           and not np.isnan(DI["tbill12"].get(t, np.nan))   # hurdle is evaluable
           and not np.isnan(DI["tbill6"].get(t, np.nan))]
     if not ok:
