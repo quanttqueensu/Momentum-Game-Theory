@@ -1,0 +1,124 @@
+{
+  "baseline": {},
+  "true_top2_buffer": {
+    "policy": "buffer"
+  },
+  "top2_equal": {
+    "policy": "top2"
+  },
+  "ranking_skip0": {
+    "skip": 0
+  },
+  "rank_3_only": {
+    "horizons": [
+      3
+    ]
+  },
+  "rank_6_only": {
+    "horizons": [
+      6
+    ]
+  },
+  "rank_12_only": {
+    "horizons": [
+      12
+    ]
+  },
+  "rank_3_12_drop6": {
+    "horizons": [
+      3,
+      12
+    ]
+  },
+  "rank_6_12_drop3": {
+    "horizons": [
+      6,
+      12
+    ]
+  },
+  "rank_3_6_drop12": {
+    "horizons": [
+      3,
+      6
+    ]
+  },
+  "six_weight_1_6": {
+    "score_weights": [
+      0.4166666666666667,
+      0.16666666666666666,
+      0.4166666666666667
+    ]
+  },
+  "six_weight_1_2": {
+    "score_weights": [
+      0.25,
+      0.5,
+      0.25
+    ]
+  },
+  "reject_new_loss3": {
+    "policy": "reject_loss",
+    "threshold": -0.03
+  },
+  "reject_new_loss5": {
+    "policy": "reject_loss",
+    "threshold": -0.05
+  },
+  "reject_new_loss7p5": {
+    "policy": "reject_loss",
+    "threshold": -0.075
+  },
+  "defensive_after_loss5": {
+    "policy": "defensive_loss",
+    "threshold": -0.05
+  },
+  "defensive_after_loss7p5": {
+    "policy": "defensive_loss",
+    "threshold": -0.075
+  },
+  "advance_after_loss3": {
+    "policy": "advance_loss",
+    "threshold": -0.03
+  },
+  "advance_after_loss5": {
+    "policy": "advance_loss",
+    "threshold": -0.05
+  },
+  "advance_after_loss7p5": {
+    "policy": "advance_loss",
+    "threshold": -0.075
+  },
+  "reject_known_next_outside2": {
+    "policy": "reject_next"
+  },
+  "advance_vol15": {
+    "vol_policy": "advance_candidate_15"
+  },
+  "advance_vol20": {
+    "vol_policy": "advance_candidate_20"
+  },
+  "advance_vol25": {
+    "vol_policy": "advance_candidate_25"
+  },
+  "retain_next_incumbent_vol20": {
+    "vol_policy": "retain_next_incumbent_20"
+  },
+  "advance_always": {
+    "vol_policy": "advance_always"
+  },
+  "style_weight35": {
+    "w_style": 0.35
+  },
+  "style_weight50": {
+    "w_style": 0.5
+  },
+  "style_weight80": {
+    "w_style": 0.8
+  },
+  "restore_throttle15": {
+    "book_vt": 0.15
+  },
+  "restore_throttle20": {
+    "book_vt": 0.2
+  }
+}
