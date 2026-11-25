@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import strategy_lib as S
 
-YEARS = 4
+YEARS = 26
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---- deck look ------------------------------------------------------------
