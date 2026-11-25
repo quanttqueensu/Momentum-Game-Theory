@@ -371,6 +371,7 @@ doc for anyone running this month to month.
 |---|---|
 | `strategy/strategy_lib.py` | The locked model: data loading, both engines, the game-theory sector selector, the throttle, and the backtest simulator. Nothing else in the repo re-implements this logic, everything imports it. |
 | `strategy/backtest.py` | Runs the full 2001-to-today backtest; produces the numbers and chart in Section 6. |
+| `strategy/beta_chart.py` | Plots the beta vs SPY of each month's holdings over the last 4 years (`beta_by_month.png`). |
 | `strategy/signals.py` | The monthly rebalance sheet, prints target weights, no IBKR connection. |
 | `strategy/data/` | Cached price (`prices.parquet`) and T-bill (`tbill_dgs3mo.parquet`) data. |
 | `strategy/live/ib_config.py` | IBKR connection settings (host/port/client id). |

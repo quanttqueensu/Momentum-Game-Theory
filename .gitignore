@@ -11,3 +11,6 @@ holdings_*.csv
 layer2_gate_exposure.csv
 __pycache__/
 *.pyc
+
+# local virtualenv
+venv/
