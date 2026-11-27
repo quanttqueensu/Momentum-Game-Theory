@@ -157,14 +157,14 @@ Two limits apply to this period:
 
 | File | Purpose |
 |---|---|
-| `strategy/sector_signal_research.py` | Runs all checks and variants |
-| `strategy/sector_signal_output/in_sample_results.csv` | Full results table |
-| `strategy/sector_signal_output/score_dispersion.csv` | Average spread of each final score |
+| `research/tables/sector_signal/sector_signal_research.py` | Runs all checks and variants |
+| `research/tables/sector_signal/in_sample_results.csv` | Full results table |
+| `research/tables/sector_signal/score_dispersion.csv` | Average spread of each final score |
 
-From the `strategy/` folder:
+From the repository root:
 
 ```
-python sector_signal_research.py
+python research/tables/sector_signal/sector_signal_research.py
 ```
 
 Run on commit `602e047`, with prices and T-bill data downloaded on 2026-11-23. The data

@@ -31,7 +31,7 @@ from that variant's evaluation. Two samples are reported:
   own     from each variant's first valid month
   common  from the first month every variant is valid (like-for-like)
 
-Run from the strategy folder:  python sector_signal_research.py
+Run:  python research/scripts/sector_signal_research.py
 """
 import os
 import warnings
@@ -39,12 +39,14 @@ import warnings
 import numpy as np
 import pandas as pd
 
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "strategy"))  # for strategy_lib
 import strategy_lib as S
 
 warnings.filterwarnings("ignore")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.path.join(HERE, "sector_signal_output")
+OUT_DIR = HERE
 HORIZONS = (3, 6, 12)
 LAMS = (8.0, 0.0)
 N_BOOT, BLOCK, SEED = 10_000, 12, 20261123
@@ -298,11 +300,11 @@ def main():
             rows.append(evaluate(name, lam, runs[name, lam], base, DI,
                                  run_first_month(base["r"], common_ready), "common"))
     table = pd.DataFrame(rows)
-    table.to_csv(os.path.join(OUT_DIR, "in_sample_results.csv"), index=False)
+    table.to_csv(os.path.join(OUT_DIR, "..", "tables", "sector_signal", "in_sample_results.csv"), index=False)
 
     dispersion = pd.Series({k: v.loc[v.index >= common_ready].std(axis=1).mean()
                             for k, v in scores.items()}, name="avg_cross_sectional_std")
-    dispersion.to_csv(os.path.join(OUT_DIR, "score_dispersion.csv"))
+    dispersion.to_csv(os.path.join(OUT_DIR, "..", "tables", "sector_signal", "score_dispersion.csv"))
 
     show = table.copy()
     for c in ("ann_ret", "ann_vol", "max_dd", "pct_months_differ"):
@@ -319,12 +321,52 @@ def main():
                   .drop(columns=["sample", "lam"]).to_string(index=False))
     print("\nAverage cross-sectional std of final score (common sample):")
     print(dispersion.round(3).to_string())
+    plot_backtest(full, runs, run_first_month(runs["S0", S.GAME_LAM]["r"], common_ready))
     print(f"\nSaved -> {OUT_DIR}")
 
 
 def run_first_month(r, ready_date):
     """First earned month after the formation date where a signal became valid."""
     return r.index[r.index > ready_date][0]
+
+
+def plot_backtest(full, runs, start):
+    """Same layout as strategy/backtest.png; common in-sample window, lam = 8 (production)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mtick
+    cut = lambda x: x[(x.index >= start) & (x.index <= IS_END)].dropna()
+    spy = full["monthly"]["SPY"]
+    agg = full["monthly"]["AGG"].where(full["monthly"]["AGG"].notna(), full["tbill_m"])
+    bal = (0.6 * spy + 0.4 * agg).dropna()
+    lines = [("S0 production", runs["S0", S.GAME_LAM]["r"], "#1f77b4", 2.4),
+             ("S1-36 residual (headline)", runs["S1-36", S.GAME_LAM]["r"], "#2ca02c", 2.0),
+             ("S2 return / own vol", runs["S2", S.GAME_LAM]["r"], "#9467bd", 1.0),
+             ("S3 return / 12m vol", runs["S3", S.GAME_LAM]["r"], "#8c564b", 1.0),
+             ("S4 residual / residual vol", runs["S4", S.GAME_LAM]["r"], "#e377c2", 1.0),
+             ("SPY", spy, "#d62728", 1.2), ("60/40", bal, "#ff7f0e", 1.2)]
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 9), gridspec_kw={"height_ratios": [2.2, 1]})
+    for label, x, c, lw in lines:
+        ax1.plot((1 + cut(x)).cumprod(), label=label, color=c, lw=lw)
+    ax1.set_yscale("log")
+    ax1.set_title(f"Sector-sleeve signals -- IN-SAMPLE {start:%Y-%m} to 2018 "
+                  "(full book; crowding lam = 8; net 10 bps;\nrebalance offset 0 of 4, single offset; see tables for offset averages)")
+    ax1.set_ylabel("Growth of $1"); ax1.legend(loc="upper left"); ax1.grid(alpha=0.3)
+    for label, x, c, _ in [lines[0], lines[1]]:
+        eq = (1 + cut(x)).cumprod()
+        dd = eq / eq.cummax() - 1
+        if label == "S0 production":
+            ax2.fill_between(eq.index, dd, 0, color="#b0b0b0", alpha=0.7, label=label)
+        else:
+            ax2.plot(eq.index, dd, color=c, lw=1.8, label=label)
+    ax2.set_title("Drawdown: production (grey area) vs S1-36 residual (line); rebalance offset 0 of 4"); ax2.legend(); ax2.grid(alpha=0.3)
+    ax2.yaxis.set_major_formatter(mtick.FuncFormatter(lambda v, _: f"{v:.0%}"))
+    plt.tight_layout()
+    out = os.path.join(OUT_DIR, "..", "results", "sector_signal_insample.png")
+    plt.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"Saved -> {out}")
 
 
 if __name__ == "__main__":
